@@ -1,5 +1,6 @@
 import type { ESLint } from 'eslint';
 
+import packageJson from '../package.json';
 import bePrecise from './rules/be-precise';
 import commandQuerySeparation from './rules/command-query-separation';
 import declarationProximity from './rules/declaration-proximity';
@@ -144,8 +145,8 @@ const heuristicRules: Record<string, 'warn'> = {
 
 const plugin: ESLint.Plugin = {
   meta: {
-    name: '@juraj-pejnovic/eslint-plugin-clean-code',
-    version: '0.2.1',
+    name: packageJson.name,
+    version: packageJson.version,
   },
   rules: rules as unknown as ESLint.Plugin['rules'],
 };

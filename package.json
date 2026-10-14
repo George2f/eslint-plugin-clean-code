@@ -1,5 +1,5 @@
 {
-  "name": "@juraj-pejnovic/eslint-plugin-clean-code",
+  "name": "@george2f/eslint-plugin-clean-code",
   "version": "0.2.1",
   "description": "ESLint rules derived from the book Clean Code (Robert C. Martin)",
   "type": "module",
@@ -13,31 +13,52 @@
     "robert-c-martin",
     "lint"
   ],
+  "homepage": "https://github.com/George2f/eslint-plugin-clean-code#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/George2f/eslint-plugin-clean-code.git"
+  },
+  "bugs": {
+    "url": "https://github.com/George2f/eslint-plugin-clean-code/issues"
+  },
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js",
-      "require": "./dist/index.cjs"
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
     },
+    "./rules.json": "./dist/rules.json",
     "./package.json": "./package.json"
   },
   "files": [
-    "dist"
+    "dist",
+    "CHANGELOG.md"
   ],
+  "sideEffects": false,
   "engines": {
     "node": "^18.18.0 || ^20.9.0 || >=21.1.0"
   },
   "scripts": {
-    "build": "tsup && node scripts/postbuild.mjs",
+    "build": "tsup && node scripts/postbuild.mjs && node scripts/generate-catalog.mjs",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "lint": "tsc --noEmit && npm run build && eslint ."
+    "verify:dist": "node scripts/verify-dist.mjs",
+    "lint": "tsc --noEmit && npm run build && eslint .",
+    "prepublishOnly": "npm run lint && npm test && npm run verify:dist"
   },
   "peerDependencies": {
     "eslint": "^8.57.0 || ^9.0.0 || ^10.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "devDependencies": {
     "@babel/core": "^8.0.7",

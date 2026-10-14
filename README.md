@@ -1,5 +1,9 @@
 # eslint-plugin-clean-code
 
+[![npm version](https://img.shields.io/npm/v/@george2f/eslint-plugin-clean-code)](https://www.npmjs.com/package/@george2f/eslint-plugin-clean-code)
+[![CI](https://github.com/George2f/eslint-plugin-clean-code/actions/workflows/ci.yml/badge.svg)](https://github.com/George2f/eslint-plugin-clean-code/actions/workflows/ci.yml)
+[![license](https://img.shields.io/npm/l/@george2f/eslint-plugin-clean-code)](LICENSE)
+
 ESLint rules derived from [Clean Code](https://www.oreilly.com/library/view/clean-code-a/9780136083238/) by Robert C. Martin.
 
 Every rule maps to a numbered book rule (Chapter 17 "Smells and Heuristics", plus selected rules from Chapters 3, 7 and 9), and every reference is kept in the rule metadata (`meta.docs.cleanCodeId`), so a lint report points straight back to the book.
@@ -11,16 +15,16 @@ Every rule maps to a numbered book rule (Chapter 17 "Smells and Heuristics", plu
 ## Install
 
 ```sh
-npm install --save-dev eslint @juraj-pejnovic/eslint-plugin-clean-code
+npm install --save-dev eslint @george2f/eslint-plugin-clean-code
 ```
 
-Requires ESLint >= 8.57 (8.57, 9.x and 10.x are supported; zero runtime dependencies). The `configs.recommended` / `configs.strict` exports are flat-config objects; on legacy `.eslintrc` setups, register the plugin and enable rules manually.
+Requires ESLint >= 8.57 (8.57, 9.x and 10.x are supported; zero runtime dependencies). The `configs.recommended` / `configs.strict` exports are flat-config objects; on legacy `.eslintrc` setups, register the plugin (`plugins: ['@george2f/clean-code']`) and enable rules manually.
 
 ## Usage
 
 ```js
 // eslint.config.js
-import cleanCode from '@juraj-pejnovic/eslint-plugin-clean-code';
+import cleanCode from '@george2f/eslint-plugin-clean-code';
 
 export default [
   cleanCode.configs.recommended, // 12 high-confidence rules, all errors
@@ -31,7 +35,7 @@ export default [
 Or pick rules individually:
 
 ```js
-import cleanCode from '@juraj-pejnovic/eslint-plugin-clean-code';
+import cleanCode from '@george2f/eslint-plugin-clean-code';
 
 export default [
   {
@@ -57,6 +61,10 @@ The 12 `recommended` rules: `max-arguments`, `no-commented-out-code`, `no-dead-c
 
 - **static** — reliable AST detection; ships in `recommended`.
 - **heuristic** — threshold-based detection with configurable options; `warn` by default in `strict`. Expect to tune options or disable a few in real codebases; every heuristic has a documented option set (see [Options](#options)).
+
+### Machine-readable rule catalog
+
+The published package ships `rules.json` (importable as `@george2f/eslint-plugin-clean-code/rules.json`): every rule with its book ID, tier, config membership, default options, JSON schema, autofix/suggestion flags, and docs link. Useful for tooling and coding agents.
 
 ## Chapter 17: Smells and Heuristics
 
@@ -261,13 +269,24 @@ Heuristic rules are approximations of judgement calls. Every threshold is an opt
 
 ```sh
 npm install
-npm test          # vitest + ESLint RuleTester (44 rule suites + integration test)
-npm run typecheck # tsc --noEmit
-npm run build     # tsup -> dist (ESM + CJS + d.ts)
-npm run lint      # builds, then lints the plugin with its own rules + typescript-eslint
+npm test            # vitest + ESLint RuleTester (44 rule suites + integration test)
+npm run typecheck   # tsc --noEmit
+npm run build       # tsup -> dist (minified ESM + CJS + d.ts + rules.json)
+npm run verify:dist # checks the built bundles (rule count, configs, meta)
+npm run lint        # builds, then lints the plugin with its own rules + typescript-eslint
 ```
 
-Each rule lives in `src/rules/<rule-name>.ts` with a colocated `.test.ts`. The book reference is in `meta.docs.cleanCodeId` and `meta.docs.cleanCodeRule`.
+Each rule lives in `src/rules/<rule-name>.ts` with a colocated `.test.ts`. The book reference is in `meta.docs.cleanCodeId` and `meta.docs.cleanCodeRule`. Contributor notes for coding agents live in [AGENTS.md](AGENTS.md).
+
+## Releasing
+
+Published from CI with npm trusted publishing (OIDC); no tokens are stored anywhere.
+
+1. Bump `version` in `package.json` and add a changelog entry
+2. Commit, then tag and push: `git tag vX.Y.Z && git push origin vX.Y.Z`
+3. `.github/workflows/release.yml` lints, tests, and publishes with provenance
+
+One-time setup: on npmjs.com, configure the package's trusted publisher as GitHub Actions, repository `George2f/eslint-plugin-clean-code`, workflow `release.yml` (the first publish must happen within two days of configuring it).
 
 ## License
 

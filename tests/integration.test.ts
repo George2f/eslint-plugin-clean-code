@@ -1,10 +1,22 @@
 import * as babelParser from '@babel/eslint-parser';
 import { ESLint } from 'eslint';
+import eslintPackage from 'eslint/package.json';
 import { describe, expect, it } from 'vitest';
 import plugin from '../src/index';
 
 const TOTAL_RULE_COUNT = 44;
 const RECOMMENDED_RULE_COUNT = 12;
+const FLAT_CONFIG_MIN_MAJOR = 9;
+const DECIMAL_RADIX = 10;
+
+const eslintMajor = Number.parseInt(eslintPackage.version, DECIMAL_RADIX);
+
+// ESLint 8 only exposes its flat-config class through this subpath.
+const { FlatESLint } =
+  eslintMajor < FLAT_CONFIG_MIN_MAJOR
+    ? await import('eslint/use-at-your-own-risk')
+    : { FlatESLint: ESLint };
+const ESLintClass = FlatESLint as unknown as typeof ESLint;
 
 const configs = plugin.configs as Record<
   string,
@@ -52,7 +64,7 @@ const JSX_CLOSING_TAG_CODE = [
 ].join('\n');
 
 function createESLint(configName: string): ESLint {
-  return new ESLint({
+  return new ESLintClass({
     overrideConfigFile: true,
     overrideConfig: [
       { languageOptions: { ecmaVersion: 'latest', sourceType: 'module' } },
@@ -102,7 +114,7 @@ const markerConfig = {
 };
 
 function createBabelESLint(extraConfigs: object[] = []): ESLint {
-  return new ESLint({
+  return new ESLintClass({
     overrideConfigFile: true,
     overrideConfig: [babelConfig, ...extraConfigs] as never,
   });

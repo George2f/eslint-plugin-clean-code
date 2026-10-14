@@ -63,7 +63,7 @@ function applyDefault(defaults: readonly unknown[], userOptions: readonly unknow
 export function createRule<TOptions extends readonly unknown[], TMessageIds extends string>(
   config: RuleConfig<TOptions, TMessageIds>,
 ): TSESLint.RuleModule<TMessageIds, TOptions, CleanCodeDocs> {
-  const url = `https://github.com/juraj-pejnovic/eslint-plugin-clean-code#${config.name}`;
+  const url = 'https://github.com/George2f/eslint-plugin-clean-code#options';
   const rule = {
     meta: {
       ...config.meta,
