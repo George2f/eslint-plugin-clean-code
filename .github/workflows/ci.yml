@@ -35,5 +35,5 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm install --no-save eslint@${{ matrix.eslint }}
-      - run: npm ls eslint --depth=0
+      - run: node -p "require('eslint/package.json').version"
       - run: npm test
