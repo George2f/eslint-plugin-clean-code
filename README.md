@@ -12,6 +12,10 @@ Every rule maps to a numbered book rule (Chapter 17 "Smells and Heuristics", plu
 - Chapters 17's 66 numbered heuristics: 39 automated, 27 documented as not statically detectable (see [Chapter 17 mapping](#chapter-17-smells-and-heuristics))
 - ESLint 9 flat config, TypeScript-friendly, dual ESM/CJS build
 
+## Why this exists
+
+I wrote this plugin because I always wondered how hard it would be to follow all of the Clean Code rules. It turns out it is hard for humans and trivial for agents — so now, instead of you following the rules, your agents follow them for you. Point them at `strict`, or `strictest` if you are feeling brave, and they will write clean, consistent, heavily rule-bound code that would make even the lousiest bot cry tears of consistent and clean joy.
+
 ## Install
 
 ```sh
@@ -28,7 +32,8 @@ import cleanCode from '@george2f/eslint-plugin-clean-code';
 
 export default [
   cleanCode.configs.recommended, // 12 high-confidence rules, all errors
-  // cleanCode.configs.strict,   // all 44 rules; static = error, heuristic = warn
+  // cleanCode.configs.strict,     // all 44 rules; static = error, heuristic = warn
+  // cleanCode.configs.strictest,  // all 44 rules at error, heuristics included
 ];
 ```
 
@@ -54,13 +59,14 @@ export default [
 |---|---|---|---|
 | `clean-code/recommended` | 12 | `error` | Reliable AST detection, low false-positive rate |
 | `clean-code/strict` | 44 | `error` static / `warn` heuristic | Everything, including opinionated heuristics |
+| `clean-code/strictest` | 44 | `error` | Everything as an error, heuristics included; expect to tune options |
 
 The 12 `recommended` rules: `max-arguments`, `no-commented-out-code`, `no-dead-code`, `no-encodings`, `no-flag-arguments`, `no-magic-numbers`, `no-negative-conditionals`, `no-overridden-safeties`, `no-pass-null`, `no-return-null`, `no-skipped-tests`, `no-todo-tests`.
 
 ### Rule tiers
 
 - **static** — reliable AST detection; ships in `recommended`.
-- **heuristic** — threshold-based detection with configurable options; `warn` by default in `strict`. Expect to tune options or disable a few in real codebases; every heuristic has a documented option set (see [Options](#options)).
+- **heuristic** — threshold-based detection with configurable options; `warn` by default in `strict` and `error` in `strictest`. Expect to tune options or disable a few in real codebases; every heuristic has a documented option set (see [Options](#options)).
 
 ### Machine-readable rule catalog
 

@@ -156,6 +156,17 @@ describe('plugin configs', () => {
     const strict = configs['strict'];
     expect(Object.keys(strict?.rules ?? {})).toHaveLength(TOTAL_RULE_COUNT);
   });
+
+  it('strictest config enables all rules', () => {
+    const strictest = configs['strictest'];
+    expect(Object.keys(strictest?.rules ?? {})).toHaveLength(TOTAL_RULE_COUNT);
+  });
+
+  it('strictest config makes every rule an error', () => {
+    const strictest = configs['strictest'];
+    const severities = Object.values(strictest?.rules ?? {});
+    expect(severities.every(severity => severity === 'error')).toBe(true);
+  });
 });
 
 describe('lint behaviour with the strict config', () => {

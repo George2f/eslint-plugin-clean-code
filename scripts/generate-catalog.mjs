@@ -9,6 +9,7 @@ const catalog = {
   configs: {
     recommended: Object.keys(plugin.configs.recommended.rules),
     strict: Object.keys(plugin.configs.strict.rules),
+    strictest: Object.keys(plugin.configs.strictest.rules),
   },
   rules: Object.entries(plugin.rules).map(([name, rule]) => ({
     name,

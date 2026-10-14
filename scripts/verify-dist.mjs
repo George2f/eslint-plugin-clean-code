@@ -15,12 +15,19 @@ for (const [format, plugin] of [
   if (ruleCount !== EXPECTED_RULE_COUNT) {
     throw new Error(`${format}: expected ${EXPECTED_RULE_COUNT} rules, found ${ruleCount}`);
   }
-  if (!plugin.configs?.recommended || !plugin.configs?.strict) {
-    throw new Error(`${format}: missing recommended/strict configs`);
+  if (!plugin.configs?.recommended || !plugin.configs?.strict || !plugin.configs?.strictest) {
+    throw new Error(`${format}: missing recommended/strict/strictest configs`);
+  }
+  const strictestSeverities = Object.values(plugin.configs.strictest.rules ?? {});
+  if (strictestSeverities.length !== EXPECTED_RULE_COUNT) {
+    throw new Error(`${format}: strictest has ${strictestSeverities.length} rules, expected ${EXPECTED_RULE_COUNT}`);
+  }
+  if (strictestSeverities.some(severity => severity !== 'error')) {
+    throw new Error(`${format}: strictest contains non-error severities`);
   }
   if (plugin.meta?.name !== EXPECTED_NAME) {
     throw new Error(`${format}: meta.name is "${plugin.meta?.name}", expected "${EXPECTED_NAME}"`);
   }
 }
 
-console.log(`verify-dist: cjs + esm ok (${EXPECTED_RULE_COUNT} rules, 2 configs)`);
+console.log(`verify-dist: cjs + esm ok (${EXPECTED_RULE_COUNT} rules, 3 configs)`);

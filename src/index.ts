@@ -143,6 +143,16 @@ const heuristicRules: Record<string, 'warn'> = {
   'clean-code/use-explanatory-variables': 'warn',
 };
 
+function asErrors(rules: Record<string, 'warn'>): Record<string, 'error'> {
+  const entries = Object.keys(rules).map(name => [name, 'error'] as const);
+  return Object.fromEntries(entries);
+}
+
+const strictestRules: Record<string, 'error'> = {
+  ...recommendedRules,
+  ...asErrors(heuristicRules),
+};
+
 const plugin: ESLint.Plugin = {
   meta: {
     name: packageJson.name,
@@ -161,6 +171,11 @@ plugin.configs = {
     name: 'clean-code/strict',
     plugins: { 'clean-code': plugin },
     rules: { ...recommendedRules, ...heuristicRules },
+  },
+  strictest: {
+    name: 'clean-code/strictest',
+    plugins: { 'clean-code': plugin },
+    rules: strictestRules,
   },
 };
 

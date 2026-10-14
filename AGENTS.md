@@ -18,7 +18,7 @@ Guidance for coding agents working in this repository.
 
 - `src/rules/<rule>.ts` — one rule per file with a colocated `.test.ts`
 - `src/utils/create-rule.ts` — rule factory: merges partial options with defaults (`applyDefault`), attaches `meta.docs.url`, `cleanCodeId`, `cleanCodeRule`
-- `src/index.ts` — rule registry plus `recommended` (12 static rules, error) and `strict` (all 44; static error, heuristic warn) flat configs; `meta.name`/`meta.version` are read from `package.json` — never hardcode them
+- `src/index.ts` — rule registry plus `recommended` (12 static rules, error), `strict` (all 44; static error, heuristic warn) and `strictest` (all 44, all error) flat configs; `meta.name`/`meta.version` are read from `package.json` — never hardcode them
 - `src/utils/` — AST, scope, naming and comment helpers; `src/test-utils/rule-tester.ts` — RuleTester wired to vitest
 
 ## Adding a rule
