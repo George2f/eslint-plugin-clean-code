@@ -1,8 +1,8 @@
 # eslint-plugin-clean-code
 
-[![npm version](https://img.shields.io/npm/v/@george2f/eslint-plugin-clean-code)](https://www.npmjs.com/package/@george2f/eslint-plugin-clean-code)
+[![npm version](https://img.shields.io/npm/v/@george2f/eslint-plugin-clean-code?logo=npm)](https://www.npmjs.com/package/@george2f/eslint-plugin-clean-code)
 [![CI](https://github.com/George2f/eslint-plugin-clean-code/actions/workflows/ci.yml/badge.svg)](https://github.com/George2f/eslint-plugin-clean-code/actions/workflows/ci.yml)
-[![license](https://img.shields.io/npm/l/@george2f/eslint-plugin-clean-code)](LICENSE)
+[![license](https://img.shields.io/npm/l/@george2f/eslint-plugin-clean-code?logo=npm)](LICENSE)
 
 ESLint rules derived from [Clean Code](https://www.oreilly.com/library/view/clean-code-a/9780136083238/) by Robert C. Martin.
 
