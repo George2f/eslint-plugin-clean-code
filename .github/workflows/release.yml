@@ -6,7 +6,7 @@ on:
 
 permissions:
   id-token: write
-  contents: read
+  contents: write
 
 jobs:
   publish:
@@ -19,6 +19,20 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
+      - run: npm run lint
+      - run: npm test
+      - run: npm run verify:dist
+      - name: Create GitHub release from the changelog
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          if gh release view "v$VERSION" >/dev/null 2>&1; then
+            echo "release v$VERSION already exists; skipping"
+          else
+            node scripts/changelog-notes.mjs > /tmp/release-notes.md
+            gh release create "v$VERSION" --title "v$VERSION" --notes-file /tmp/release-notes.md
+          fi
       - name: Publish unless the version already exists
         run: |
           VERSION=$(node -p "require('./package.json').version")

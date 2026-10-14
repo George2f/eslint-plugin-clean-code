@@ -290,7 +290,7 @@ Published from CI with npm trusted publishing (OIDC); no tokens are stored anywh
 
 1. Bump `version` in `package.json` and add a changelog entry
 2. Commit, then tag and push: `git tag vX.Y.Z && git push origin vX.Y.Z`
-3. `.github/workflows/release.yml` lints, tests, and publishes with provenance
+3. `.github/workflows/release.yml` lints, tests, creates a GitHub Release from the matching changelog section, and publishes with provenance
 
 One-time setup: on npmjs.com, configure the package's trusted publisher as GitHub Actions, repository `George2f/eslint-plugin-clean-code`, workflow `release.yml` (the first publish must happen within two days of configuring it).
 

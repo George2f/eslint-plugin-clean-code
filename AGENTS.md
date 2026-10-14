@@ -35,7 +35,7 @@ Guidance for coding agents working in this repository.
 - Tests import `src`, not `dist`. Run `npm run verify:dist` after any build-related change (the output is minified)
 - The `it` entry in `long-names-for-long-scopes` defaults is an intentional test-framework exception
 - Version lives in `package.json` only; `src/index.ts` reads it at build time
-- Releases go through git tags and `.github/workflows/release.yml` (npm trusted publishing / OIDC). Do not `npm publish` from a laptop unless bootstrapping the very first version
+- Releases go through git tags and `.github/workflows/release.yml` (npm trusted publishing / OIDC; creates the GitHub Release from the changelog). Do not `npm publish` from a laptop unless bootstrapping the very first version
 
 ## Conventions
 
