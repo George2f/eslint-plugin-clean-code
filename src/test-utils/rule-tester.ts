@@ -1,12 +1,12 @@
-import { RuleTester } from '@typescript-eslint/rule-tester';
+import { RuleTester as Tester } from '@typescript-eslint/rule-tester';
 import { afterAll, describe, it } from 'vitest';
 
-RuleTester.afterAll = afterAll;
-RuleTester.describe = describe;
-RuleTester.it = it;
-RuleTester.itOnly = it.only;
+Tester.afterAll = afterAll;
+Tester.describe = describe;
+Tester.it = it;
+Tester.itOnly = it.only;
 
-export const ruleTester = new RuleTester({
+export const ruleTester = new Tester({
   languageOptions: {
     parserOptions: {
       ecmaVersion: 'latest',

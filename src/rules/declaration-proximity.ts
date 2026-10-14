@@ -1,6 +1,54 @@
-import type { TSESTree } from '@typescript-eslint/utils';
+import type { TSESLint, TSESTree } from '@typescript-eslint/utils';
 import { createRule } from '../utils/create-rule';
 import { getVariable } from '../utils/scope';
+
+type MessageIds = 'farFromUsage';
+type Options = { maxDistance: number }[];
+type ProximityContext = TSESLint.RuleContext<MessageIds, Options>;
+
+function shouldCheckDeclaration(parent: TSESTree.Node): boolean {
+  if (parent.type === 'Program') return false;
+  return (
+    parent.type !== 'ForStatement' &&
+    parent.type !== 'ForInStatement' &&
+    parent.type !== 'ForOfStatement'
+  );
+}
+
+function findFirstUseLine(variable: TSESLint.Scope.Variable): number | null {
+  let firstUseStart = Number.POSITIVE_INFINITY;
+  let firstUseLine: number | null = null;
+  for (const reference of variable.references) {
+    if (!reference.isRead()) continue;
+    const identifier = reference.identifier;
+    if (identifier.range[0] < firstUseStart) {
+      firstUseStart = identifier.range[0];
+      firstUseLine = identifier.loc.start.line;
+    }
+  }
+  return firstUseLine;
+}
+
+function checkDeclarator(
+  node: TSESTree.VariableDeclarator,
+  context: ProximityContext,
+  options: Options[number],
+): void {
+  if (node.id.type !== 'Identifier') return;
+  if (!shouldCheckDeclaration(node.parent.parent)) return;
+  const variable = getVariable(context.sourceCode, node.id);
+  if (!variable) return;
+  const firstUseLine = findFirstUseLine(variable);
+  if (firstUseLine === null) return;
+  const id = node.id;
+  const distance = firstUseLine - id.loc.end.line;
+  if (distance <= options.maxDistance) return;
+  context.report({
+    node,
+    messageId: 'farFromUsage',
+    data: { name: id.name, distance },
+  });
+}
 
 export default createRule({
   name: 'declaration-proximity',
@@ -25,42 +73,8 @@ export default createRule({
   },
   defaultOptions: [{ maxDistance: 15 }],
   create(context, [options]) {
-    function check(node: TSESTree.VariableDeclarator): void {
-      if (node.id.type !== 'Identifier') return;
-      const declaration = node.parent;
-      const parent = declaration.parent;
-      if (parent.type === 'Program') return;
-      if (
-        parent.type === 'ForStatement' ||
-        parent.type === 'ForInStatement' ||
-        parent.type === 'ForOfStatement'
-      ) {
-        return;
-      }
-      const variable = getVariable(context.sourceCode, node.id);
-      if (!variable) return;
-      let firstUseLine: number | null = null;
-      let firstUseStart = Number.POSITIVE_INFINITY;
-      for (const reference of variable.references) {
-        if (!reference.isRead()) continue;
-        if (reference.identifier.range[0] < firstUseStart) {
-          firstUseStart = reference.identifier.range[0];
-          firstUseLine = reference.identifier.loc.start.line;
-        }
-      }
-      if (firstUseLine === null) return;
-      const distance = firstUseLine - node.id.loc.end.line;
-      if (distance > options.maxDistance) {
-        context.report({
-          node,
-          messageId: 'farFromUsage',
-          data: { name: node.id.name, distance },
-        });
-      }
-    }
-
     return {
-      VariableDeclarator: check,
+      VariableDeclarator: node => checkDeclarator(node, context, options),
     };
   },
 });

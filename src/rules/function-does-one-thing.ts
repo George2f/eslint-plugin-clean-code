@@ -1,9 +1,56 @@
-import type { TSESTree } from '@typescript-eslint/utils';
+import type { TSESLint, TSESTree } from '@typescript-eslint/utils';
 import { createRule } from '../utils/create-rule';
 import { getFunctionName, isFunctionNode } from '../utils/ast';
+import type { FunctionNode } from '../utils/ast';
 import { containsWord } from '../utils/naming';
 
+type MessageIds = 'nameSuggestsMultipleThings' | 'functionTooLong';
+type Options = { maxStatements: number; maxLines: number }[];
+type FunctionLengthContext = TSESLint.RuleContext<MessageIds, Options>;
+
 const MULTI_ACTION_WORDS = ['and', 'or'];
+
+function checkFunctionName(node: FunctionNode, context: FunctionLengthContext): void {
+  const name = getFunctionName(node);
+  if (!name || !containsWord(name, MULTI_ACTION_WORDS)) return;
+  context.report({
+    node,
+    messageId: 'nameSuggestsMultipleThings',
+    data: { name },
+  });
+}
+
+function checkFunctionLength(
+  node: FunctionNode,
+  context: FunctionLengthContext,
+  options: Options[number],
+): void {
+  if (node.body.type !== 'BlockStatement') return;
+  const body = node.body;
+  const statements = body.body.length;
+  const lines = body.loc.end.line - body.loc.start.line + 1;
+  if (statements <= options.maxStatements && lines <= options.maxLines) return;
+  context.report({
+    node,
+    messageId: 'functionTooLong',
+    data: {
+      statements,
+      maxStatements: options.maxStatements,
+      lines,
+      maxLines: options.maxLines,
+    },
+  });
+}
+
+function checkFunction(
+  node: TSESTree.FunctionLike,
+  context: FunctionLengthContext,
+  options: Options[number],
+): void {
+  if (!isFunctionNode(node)) return;
+  checkFunctionName(node, context);
+  checkFunctionLength(node, context, options);
+}
 
 export default createRule({
   name: 'function-does-one-thing',
@@ -33,36 +80,10 @@ export default createRule({
   },
   defaultOptions: [{ maxStatements: 20, maxLines: 30 }],
   create(context, [options]) {
-    function check(node: TSESTree.FunctionLike): void {
-      if (!isFunctionNode(node)) return;
-      const name = getFunctionName(node);
-      if (name && containsWord(name, MULTI_ACTION_WORDS)) {
-        context.report({
-          node,
-          messageId: 'nameSuggestsMultipleThings',
-          data: { name },
-        });
-      }
-      if (node.body.type !== 'BlockStatement') return;
-      const statements = node.body.body.length;
-      const lines = node.body.loc.end.line - node.body.loc.start.line + 1;
-      if (statements > options.maxStatements || lines > options.maxLines) {
-        context.report({
-          node,
-          messageId: 'functionTooLong',
-          data: {
-            statements,
-            maxStatements: options.maxStatements,
-            lines,
-            maxLines: options.maxLines,
-          },
-        });
-      }
-    }
     return {
-      FunctionDeclaration: check,
-      FunctionExpression: check,
-      ArrowFunctionExpression: check,
+      FunctionDeclaration: node => checkFunction(node, context, options),
+      FunctionExpression: node => checkFunction(node, context, options),
+      ArrowFunctionExpression: node => checkFunction(node, context, options),
     };
   },
 });

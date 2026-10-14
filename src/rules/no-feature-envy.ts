@@ -1,7 +1,21 @@
-import type { TSESTree } from '@typescript-eslint/utils';
+import type { TSESLint, TSESTree } from '@typescript-eslint/utils';
 import { createRule } from '../utils/create-rule';
 import { walk } from '../utils/ast';
 import type { VisitorKeys } from '../utils/ast';
+
+type MessageIds = 'featureEnvy';
+type Options = { minimumAccesses: number }[];
+type FeatureEnvyContext = TSESLint.RuleContext<MessageIds, Options>;
+
+interface AccessCounts {
+  ownAccesses: number;
+  objectAccesses: Map<string, number>;
+}
+
+interface TopAccess {
+  name: string;
+  count: number;
+}
 
 function isMethod(node: TSESTree.FunctionExpression | TSESTree.ArrowFunctionExpression): boolean {
   const parent = node.parent;
@@ -11,6 +25,61 @@ function isMethod(node: TSESTree.FunctionExpression | TSESTree.ArrowFunctionExpr
     parent.value === node &&
     parent.parent.type === 'ObjectExpression'
   );
+}
+
+function isNestedFunction(node: TSESTree.Node): boolean {
+  return node.type === 'FunctionDeclaration' || node.type === 'FunctionExpression';
+}
+
+function countAccesses(
+  body: TSESTree.Node,
+  visitorKeys: VisitorKeys,
+): AccessCounts {
+  const counts: AccessCounts = { ownAccesses: 0, objectAccesses: new Map() };
+  walk(
+    body,
+    visitorKeys,
+    current => {
+      if (current.type !== 'MemberExpression') return;
+      const object = current.object;
+      if (object.type === 'ThisExpression') {
+        counts.ownAccesses += 1;
+        return;
+      }
+      if (object.type === 'Identifier') {
+        const count = counts.objectAccesses.get(object.name) ?? 0;
+        counts.objectAccesses.set(object.name, count + 1);
+      }
+    },
+    { shouldDescend: current => !isNestedFunction(current) },
+  );
+  return counts;
+}
+
+function findTopAccess(objectAccesses: Map<string, number>): TopAccess | undefined {
+  let top: TopAccess | undefined;
+  for (const [name, count] of objectAccesses) {
+    if (!top || count > top.count) top = { name, count };
+  }
+  return top;
+}
+
+function checkMethodFunction(
+  node: TSESTree.FunctionExpression | TSESTree.ArrowFunctionExpression,
+  context: FeatureEnvyContext,
+  options: Options[number],
+): void {
+  if (!isMethod(node)) return;
+  const visitorKeys = context.sourceCode.visitorKeys as VisitorKeys;
+  const counts = countAccesses(node.body, visitorKeys);
+  const top = findTopAccess(counts.objectAccesses);
+  if (!top) return;
+  if (top.count < options.minimumAccesses || top.count <= counts.ownAccesses) return;
+  context.report({
+    node,
+    messageId: 'featureEnvy',
+    data: { object: top.name, accesses: top.count, ownAccesses: counts.ownAccesses },
+  });
 }
 
 export default createRule({
@@ -37,51 +106,9 @@ export default createRule({
   },
   defaultOptions: [{ minimumAccesses: 4 }],
   create(context, [options]) {
-    const visitorKeys = context.sourceCode.visitorKeys as VisitorKeys;
-
-    function check(node: TSESTree.FunctionExpression | TSESTree.ArrowFunctionExpression): void {
-      if (!isMethod(node)) return;
-      let ownAccesses = 0;
-      const objectAccesses = new Map<string, number>();
-      walk(
-        node.body,
-        visitorKeys,
-        current => {
-          if (current.type !== 'MemberExpression') return;
-          const object = current.object;
-          if (object.type === 'ThisExpression') {
-            ownAccesses += 1;
-            return;
-          }
-          if (object.type === 'Identifier') {
-            objectAccesses.set(object.name, (objectAccesses.get(object.name) ?? 0) + 1);
-          }
-        },
-        {
-          shouldDescend: current =>
-            current.type !== 'FunctionDeclaration' && current.type !== 'FunctionExpression',
-        },
-      );
-      let maxName: string | undefined;
-      let maxCount = 0;
-      for (const [name, count] of objectAccesses) {
-        if (count > maxCount) {
-          maxName = name;
-          maxCount = count;
-        }
-      }
-      if (maxName === undefined) return;
-      if (maxCount < options.minimumAccesses || maxCount <= ownAccesses) return;
-      context.report({
-        node,
-        messageId: 'featureEnvy',
-        data: { object: maxName, accesses: maxCount, ownAccesses },
-      });
-    }
-
     return {
-      FunctionExpression: check,
-      ArrowFunctionExpression: check,
+      FunctionExpression: node => checkMethodFunction(node, context, options),
+      ArrowFunctionExpression: node => checkMethodFunction(node, context, options),
     };
   },
 });

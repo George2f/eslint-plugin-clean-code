@@ -51,14 +51,21 @@ export function isJsDocComment(comment: TSESTree.Comment): boolean {
   return comment.type === 'Block' && comment.value.startsWith('*');
 }
 
+function stripStarPrefix(line: string): string {
+  return line.replace(/^\s*\*\s?/, '');
+}
+
+function hasStarPrefix(lines: string[]): boolean {
+  const firstLine = lines[0];
+  const trimmedFirstLine = firstLine?.trimStart();
+  return trimmedFirstLine?.startsWith('*') ?? false;
+}
+
 export function stripCommentMarkers(comment: TSESTree.Comment): string {
-  if (comment.type === 'Block') {
-    const lines = comment.value.split('\n');
-    if (lines[0]?.trimStart().startsWith('*')) {
-      return lines.map(line => line.replace(/^\s*\*\s?/, '')).join('\n');
-    }
-  }
-  return comment.value;
+  if (comment.type !== 'Block') return comment.value;
+  const lines = comment.value.split('\n');
+  if (!hasStarPrefix(lines)) return comment.value;
+  return lines.map(stripStarPrefix).join('\n');
 }
 
 function tryParse(text: string): LooseNode | null {
@@ -104,16 +111,22 @@ function programIsMeaningful(program: LooseNode): boolean {
   return body.length > 1 || meaningful.length === body.length;
 }
 
+function endsOpeningLine(line: string): boolean {
+  const withoutTrailingSpace = line.trimEnd();
+  return /[;{(=]$/.test(withoutTrailingSpace);
+}
+
+function isStrongCodeLine(line: string): boolean {
+  return /[;]$/.test(line) && /[=]|\(\)|\(.*\)|\{|\}/.test(line);
+}
+
 function linesLookLikeCode(lines: string[]): boolean {
-  const trimmed = lines.map(line => line.trim()).filter(Boolean);
-  if (trimmed.length === 0) return false;
-  const keywordLines = trimmed.filter(
-    line => KEYWORD_LINE.test(line) && /[;{(=]$/.test(line.trimEnd()),
-  );
-  if (keywordLines.length >= 1) return true;
-  const strongLines = trimmed.filter(
-    line => /[;]$/.test(line) && /[=]|\(\)|\(.*\)|\{|\}/.test(line),
-  );
+  const trimmedLines = lines.map(line => line.trim()).filter(Boolean);
+  if (trimmedLines.length === 0) return false;
+  if (trimmedLines.some(line => KEYWORD_LINE.test(line) && endsOpeningLine(line))) {
+    return true;
+  }
+  const strongLines = trimmedLines.filter(isStrongCodeLine);
   return strongLines.length >= 2;
 }
 

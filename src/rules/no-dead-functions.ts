@@ -4,6 +4,17 @@ import { collectJsxComponentNames, walk } from '../utils/ast';
 import type { VisitorKeys } from '../utils/ast';
 import { getVariable } from '../utils/scope';
 
+type MessageIds = 'deadFunction' | 'removeDeadFunction';
+type Options = { allow: string[] }[];
+type DeadFunctionContext = TSESLint.RuleContext<MessageIds, Options>;
+
+interface DeadFunctionState {
+  sourceCode: TSESLint.SourceCode;
+  allowed: Set<string>;
+  jsxComponentNames: Set<string>;
+  privateNameCounts: Map<string, number>;
+}
+
 function isExportDeclaration(node: TSESTree.Node | undefined): boolean {
   return node?.type === 'ExportNamedDeclaration' || node?.type === 'ExportDefaultDeclaration';
 }
@@ -13,6 +24,118 @@ const SUGGESTIBLE_DECLARATION_PARENTS = new Set([
   'BlockStatement',
   'SwitchCase',
 ]);
+
+function isUsed(variable: TSESLint.Scope.Variable, jsxComponentNames: Set<string>): boolean {
+  if (variable.eslintUsed) return true;
+  if (jsxComponentNames.has(variable.name)) return true;
+  return variable.references.some(reference => reference.isRead());
+}
+
+function buildDeclaratorRemovalFix(
+  declarator: TSESTree.VariableDeclarator,
+  sourceCode: TSESLint.SourceCode,
+): ((fixer: TSESLint.RuleFixer) => TSESLint.RuleFix | null) | null {
+  const declaration = declarator.parent;
+  if (declaration.type !== 'VariableDeclaration') return null;
+  if (!SUGGESTIBLE_DECLARATION_PARENTS.has(declaration.parent.type)) return null;
+  const remaining = declaration.declarations.filter(item => item !== declarator);
+  if (remaining.length === 0) {
+    return fixer => fixer.remove(declaration);
+  }
+  const remainingText = remaining
+    .map(item => sourceCode.getText(item))
+    .join(', ');
+  return fixer => fixer.replaceText(declaration, `${declaration.kind} ${remainingText};`);
+}
+
+function checkFunctionDeclaration(
+  node: TSESTree.FunctionDeclaration,
+  context: DeadFunctionContext,
+  state: DeadFunctionState,
+): void {
+  const identifier = node.id;
+  if (!identifier || state.allowed.has(identifier.name)) return;
+  if (isExportDeclaration(node.parent)) return;
+  const variable = getVariable(state.sourceCode, identifier);
+  if (!variable || isUsed(variable, state.jsxComponentNames)) return;
+  context.report({
+    node: identifier,
+    messageId: 'deadFunction',
+    data: { name: identifier.name },
+    suggest: [
+      {
+        messageId: 'removeDeadFunction',
+        data: { name: identifier.name },
+        fix: fixer => fixer.remove(node),
+      },
+    ],
+  });
+}
+
+function checkVariableDeclarator(
+  node: TSESTree.VariableDeclarator,
+  context: DeadFunctionContext,
+  state: DeadFunctionState,
+): void {
+  const init = node.init;
+  if (!init) return;
+  if (init.type !== 'ArrowFunctionExpression' && init.type !== 'FunctionExpression') return;
+  if (node.id.type !== 'Identifier' || state.allowed.has(node.id.name)) return;
+  if (isExportDeclaration(node.parent.parent)) return;
+  const identifier = node.id;
+  const variable = getVariable(state.sourceCode, identifier);
+  if (!variable || isUsed(variable, state.jsxComponentNames)) return;
+  const removalFix = buildDeclaratorRemovalFix(node, state.sourceCode);
+  context.report({
+    node: identifier,
+    messageId: 'deadFunction',
+    data: { name: identifier.name },
+    suggest: removalFix
+      ? [
+          {
+            messageId: 'removeDeadFunction',
+            data: { name: identifier.name },
+            fix: removalFix,
+          },
+        ]
+      : undefined,
+  });
+}
+
+function checkPrivateMethod(
+  node: TSESTree.MethodDefinition,
+  context: DeadFunctionContext,
+  state: DeadFunctionState,
+): void {
+  if (node.key.type !== 'PrivateIdentifier') return;
+  if (state.allowed.has(node.key.name)) return;
+  if (state.privateNameCounts.get(node.key.name) !== 1) return;
+  context.report({
+    node: node.key,
+    messageId: 'deadFunction',
+    data: { name: node.key.name },
+    suggest: [
+      {
+        messageId: 'removeDeadFunction',
+        data: { name: node.key.name },
+        fix: fixer => fixer.remove(node),
+      },
+    ],
+  });
+}
+
+function collectPrivateNames(
+  node: TSESTree.Program,
+  visitorKeys: VisitorKeys,
+): Map<string, number> {
+  const privateNameCounts = new Map<string, number>();
+  walk(node, visitorKeys, current => {
+    if (current.type !== 'PrivateIdentifier') return;
+    const count = privateNameCounts.get(current.name) ?? 0;
+    privateNameCounts.set(current.name, count + 1);
+  });
+  return privateNameCounts;
+}
 
 export default createRule({
   name: 'no-dead-functions',
@@ -42,114 +165,19 @@ export default createRule({
   create(context, [options]) {
     const sourceCode = context.sourceCode;
     const visitorKeys = sourceCode.visitorKeys as VisitorKeys;
-    const allowed = new Set(options.allow);
-    const privateNameCounts = new Map<string, number>();
-    const jsxComponentNames = collectJsxComponentNames(sourceCode.ast, visitorKeys);
-
-    function isUsed(variable: TSESLint.Scope.Variable): boolean {
-      if (variable.eslintUsed) return true;
-      if (jsxComponentNames.has(variable.name)) return true;
-      return variable.references.some(reference => reference.isRead());
-    }
-
-    function checkFunctionDeclaration(node: TSESTree.FunctionDeclaration): void {
-      const identifier = node.id;
-      if (!identifier || allowed.has(identifier.name)) return;
-      if (isExportDeclaration(node.parent)) return;
-      const variable = getVariable(sourceCode, identifier);
-      if (variable && !isUsed(variable)) {
-        context.report({
-          node: identifier,
-          messageId: 'deadFunction',
-          data: { name: identifier.name },
-          suggest: [
-            {
-              messageId: 'removeDeadFunction',
-              data: { name: identifier.name },
-              fix: fixer => fixer.remove(node),
-            },
-          ],
-        });
-      }
-    }
-
-    function buildDeclaratorRemovalFix(
-      declarator: TSESTree.VariableDeclarator,
-    ): ((fixer: TSESLint.RuleFixer) => TSESLint.RuleFix | null) | null {
-      const declaration = declarator.parent;
-      if (declaration.type !== 'VariableDeclaration') return null;
-      if (!SUGGESTIBLE_DECLARATION_PARENTS.has(declaration.parent.type)) return null;
-      const remaining = declaration.declarations.filter(item => item !== declarator);
-      if (remaining.length === 0) {
-        return fixer => fixer.remove(declaration);
-      }
-      const remainingText = remaining
-        .map(item => sourceCode.getText(item))
-        .join(', ');
-      return fixer => fixer.replaceText(declaration, `${declaration.kind} ${remainingText};`);
-    }
-
-    function checkVariableDeclarator(node: TSESTree.VariableDeclarator): void {
-      const init = node.init;
-      if (
-        !init ||
-        (init.type !== 'ArrowFunctionExpression' && init.type !== 'FunctionExpression')
-      ) {
-        return;
-      }
-      if (node.id.type !== 'Identifier' || allowed.has(node.id.name)) return;
-      if (isExportDeclaration(node.parent.parent)) return;
-      const variable = getVariable(sourceCode, node.id);
-      if (variable && !isUsed(variable)) {
-        const removalFix = buildDeclaratorRemovalFix(node);
-        context.report({
-          node: node.id,
-          messageId: 'deadFunction',
-          data: { name: node.id.name },
-          suggest: removalFix
-            ? [
-                {
-                  messageId: 'removeDeadFunction',
-                  data: { name: node.id.name },
-                  fix: removalFix,
-                },
-              ]
-            : undefined,
-        });
-      }
-    }
-
+    const state: DeadFunctionState = {
+      sourceCode,
+      allowed: new Set(options.allow),
+      jsxComponentNames: collectJsxComponentNames(sourceCode.ast, visitorKeys),
+      privateNameCounts: new Map(),
+    };
     return {
       Program(node) {
-        walk(node, visitorKeys, current => {
-          if (current.type === 'PrivateIdentifier') {
-            privateNameCounts.set(
-              current.name,
-              (privateNameCounts.get(current.name) ?? 0) + 1,
-            );
-          }
-        });
+        state.privateNameCounts = collectPrivateNames(node, visitorKeys);
       },
-      FunctionDeclaration: checkFunctionDeclaration,
-      VariableDeclarator: checkVariableDeclarator,
-      MethodDefinition(node) {
-        if (node.key.type !== 'PrivateIdentifier') return;
-        if (allowed.has(node.key.name)) return;
-        if (privateNameCounts.get(node.key.name) === 1) {
-          context.report({
-            node: node.key,
-            messageId: 'deadFunction',
-            data: { name: node.key.name },
-            suggest: [
-              {
-                messageId: 'removeDeadFunction',
-                data: { name: node.key.name },
-                fix: fixer => fixer.remove(node),
-              },
-            ],
-          });
-        }
-      },
+      FunctionDeclaration: node => checkFunctionDeclaration(node, context, state),
+      VariableDeclarator: node => checkVariableDeclarator(node, context, state),
+      MethodDefinition: node => checkPrivateMethod(node, context, state),
     };
   },
 });

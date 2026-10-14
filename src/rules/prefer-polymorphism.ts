@@ -1,5 +1,9 @@
-import type { TSESTree } from '@typescript-eslint/utils';
+import type { TSESLint, TSESTree } from '@typescript-eslint/utils';
 import { createRule } from '../utils/create-rule';
+
+type MessageIds = 'longSwitch' | 'longIfElseChain';
+type Options = { maxSwitchCases: number; maxIfElseBranches: number }[];
+type PolymorphismContext = TSESLint.RuleContext<MessageIds, Options>;
 
 const COMPARISON_OPERATORS = new Set(['===', '==', '!==', '!=']);
 
@@ -11,6 +15,70 @@ function getDiscriminant(test: TSESTree.Expression): TSESTree.Node | undefined {
     if (side.type === 'Identifier' || side.type === 'MemberExpression') return side;
   }
   return undefined;
+}
+
+function checkSwitch(
+  node: TSESTree.SwitchStatement,
+  context: PolymorphismContext,
+  options: Options[number],
+): void {
+  const count = node.cases.filter(clause => clause.test !== null).length;
+  if (count <= options.maxSwitchCases) return;
+  context.report({
+    node,
+    messageId: 'longSwitch',
+    data: { count, max: options.maxSwitchCases },
+  });
+}
+
+function collectChainTests(node: TSESTree.IfStatement): TSESTree.Expression[] {
+  const tests: TSESTree.Expression[] = [node.test];
+  let current: TSESTree.IfStatement = node;
+  while (current.alternate && current.alternate.type === 'IfStatement') {
+    current = current.alternate;
+    tests.push(current.test);
+  }
+  return tests;
+}
+
+function countDiscriminantTexts(
+  tests: TSESTree.Expression[],
+  sourceCode: TSESLint.SourceCode,
+): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const test of tests) {
+    const discriminant = getDiscriminant(test);
+    if (!discriminant) continue;
+    const text = sourceCode.getText(discriminant);
+    counts.set(text, (counts.get(text) ?? 0) + 1);
+  }
+  return counts;
+}
+
+function highestCount(counts: Map<string, number>): number {
+  let mostCommon = 0;
+  for (const value of counts.values()) {
+    if (value > mostCommon) mostCommon = value;
+  }
+  return mostCommon;
+}
+
+function checkIfChain(
+  node: TSESTree.IfStatement,
+  context: PolymorphismContext,
+  options: Options[number],
+): void {
+  const parent = node.parent;
+  if (parent.type === 'IfStatement' && parent.alternate === node) return;
+  const tests = collectChainTests(node);
+  if (tests.length < options.maxIfElseBranches) return;
+  const counts = countDiscriminantTexts(tests, context.sourceCode);
+  if (highestCount(counts) + 1 < tests.length) return;
+  context.report({
+    node,
+    messageId: 'longIfElseChain',
+    data: { branches: tests.length },
+  });
 }
 
 export default createRule({
@@ -43,45 +111,8 @@ export default createRule({
   defaultOptions: [{ maxSwitchCases: 4, maxIfElseBranches: 5 }],
   create(context, [options]) {
     return {
-      SwitchStatement(node) {
-        const count = node.cases.filter(clause => clause.test !== null).length;
-        if (count > options.maxSwitchCases) {
-          context.report({
-            node,
-            messageId: 'longSwitch',
-            data: { count, max: options.maxSwitchCases },
-          });
-        }
-      },
-      IfStatement(node) {
-        const parent = node.parent;
-        if (parent.type === 'IfStatement' && parent.alternate === node) return;
-        const tests: TSESTree.Expression[] = [node.test];
-        let current = node;
-        while (current.alternate && current.alternate.type === 'IfStatement') {
-          current = current.alternate;
-          tests.push(current.test);
-        }
-        const branches = tests.length;
-        if (branches < options.maxIfElseBranches) return;
-        const counts = new Map<string, number>();
-        for (const test of tests) {
-          const discriminant = getDiscriminant(test);
-          if (!discriminant) continue;
-          const text = context.sourceCode.getText(discriminant);
-          counts.set(text, (counts.get(text) ?? 0) + 1);
-        }
-        let mostCommon = 0;
-        for (const value of counts.values()) {
-          if (value > mostCommon) mostCommon = value;
-        }
-        if (mostCommon < branches - 1) return;
-        context.report({
-          node,
-          messageId: 'longIfElseChain',
-          data: { branches },
-        });
-      },
+      SwitchStatement: node => checkSwitch(node, context, options),
+      IfStatement: node => checkIfChain(node, context, options),
     };
   },
 });

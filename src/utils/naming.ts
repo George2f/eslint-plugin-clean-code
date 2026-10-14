@@ -1,10 +1,16 @@
+const CAMEL_WORD_BOUNDARY = /([a-z0-9])([A-Z])/g;
+const ACRONYM_WORD_BOUNDARY = /([A-Z]+)([A-Z][a-z])/g;
+const WORD_SEPARATORS = /[_\-\s$]+/;
+
+function insertWordBoundaries(name: string): string {
+  return name.replace(CAMEL_WORD_BOUNDARY, '$1 $2').replace(ACRONYM_WORD_BOUNDARY, '$1 $2');
+}
+
 export function splitWords(name: string): string[] {
-  return name
-    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
-    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
-    .split(/[_\-\s$]+/)
-    .filter(Boolean)
-    .map(word => word.toLowerCase());
+  const separated = insertWordBoundaries(name);
+  const parts = separated.split(WORD_SEPARATORS);
+  const words = parts.filter(Boolean);
+  return words.map(word => word.toLowerCase());
 }
 
 export function isConstantName(name: string): boolean {

@@ -26,7 +26,7 @@ export default createRule({
       },
     ],
   },
-  defaultOptions: [{ minLength: 3, allow: ['i', 'j', 'k', 'x', 'y', 'z', 'e', '_'] }],
+  defaultOptions: [{ minLength: 3, allow: ['i', 'j', 'k', 'x', 'y', 'z', 'e', '_', 'it'] }],
   create(context, [options]) {
     return {
       'Program:exit'() {

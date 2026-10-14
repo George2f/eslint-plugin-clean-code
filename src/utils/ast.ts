@@ -40,15 +40,28 @@ export function walk(
   }
 }
 
+type TransparentWrapper =
+  | TSESTree.TSAsExpression
+  | TSESTree.TSSatisfiesExpression
+  | TSESTree.TSNonNullExpression
+  | TSESTree.TSTypeAssertion
+  | TSESTree.TSInstantiationExpression;
+
+const TRANSPARENT_WRAPPERS = new Set<string>([
+  'TSAsExpression',
+  'TSSatisfiesExpression',
+  'TSNonNullExpression',
+  'TSTypeAssertion',
+  'TSInstantiationExpression',
+]);
+
+function isTransparentWrapper(node: TSESTree.Node): node is TransparentWrapper {
+  return TRANSPARENT_WRAPPERS.has(node.type);
+}
+
 export function unwrap(node: TSESTree.Node): TSESTree.Node {
   let current = node;
-  while (
-    current.type === 'TSAsExpression' ||
-    current.type === 'TSSatisfiesExpression' ||
-    current.type === 'TSNonNullExpression' ||
-    current.type === 'TSTypeAssertion' ||
-    current.type === 'TSInstantiationExpression'
-  ) {
+  while (isTransparentWrapper(current)) {
     current = current.expression;
   }
   return current;

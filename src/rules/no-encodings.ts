@@ -1,7 +1,11 @@
-import type { TSESTree } from '@typescript-eslint/utils';
+import type { TSESLint, TSESTree } from '@typescript-eslint/utils';
 import { createRule } from '../utils/create-rule';
 import { getParamIdentifier } from '../utils/ast';
 import type { FunctionNode } from '../utils/ast';
+
+type MessageIds = 'encodedName';
+type Options = { patterns: string[]; typePrefixes: boolean }[];
+type EncodingContext = TSESLint.RuleContext<MessageIds, Options>;
 
 const ENCODING_PATTERNS = [
   /^[mgs]_/,
@@ -9,6 +13,59 @@ const ENCODING_PATTERNS = [
 ];
 
 const TYPE_PREFIX_PATTERN = /^I[A-Z][a-z]/;
+
+function compilePatterns(patterns: string[]): RegExp[] {
+  return patterns.flatMap(source => {
+    try {
+      return [new RegExp(source)];
+    } catch {
+      return [];
+    }
+  });
+}
+
+function isEncoded(name: string, userPatterns: RegExp[]): boolean {
+  if (ENCODING_PATTERNS.some(pattern => pattern.test(name))) return true;
+  return userPatterns.some(pattern => pattern.test(name));
+}
+
+function checkIdentifier(
+  identifier: TSESTree.Identifier,
+  context: EncodingContext,
+  userPatterns: RegExp[],
+): void {
+  if (!isEncoded(identifier.name, userPatterns)) return;
+  context.report({
+    node: identifier,
+    messageId: 'encodedName',
+    data: { name: identifier.name },
+  });
+}
+
+function checkParams(
+  node: FunctionNode,
+  context: EncodingContext,
+  userPatterns: RegExp[],
+): void {
+  for (const param of node.params) {
+    const identifier = getParamIdentifier(param);
+    if (identifier) checkIdentifier(identifier, context, userPatterns);
+  }
+}
+
+function checkTypePrefix(
+  identifier: TSESTree.Identifier,
+  context: EncodingContext,
+  options: Options[number],
+): void {
+  if (!options.typePrefixes) return;
+  if (!TYPE_PREFIX_PATTERN.test(identifier.name)) return;
+  context.report({
+    node: identifier,
+    messageId: 'encodedName',
+    data: { name: identifier.name },
+  });
+}
 
 export default createRule({
   name: 'no-encodings',
@@ -36,66 +93,30 @@ export default createRule({
   },
   defaultOptions: [{ patterns: [] as string[], typePrefixes: false }],
   create(context, [options]) {
-    const userPatterns = options.patterns.flatMap(source => {
-      try {
-        return [new RegExp(source)];
-      } catch {
-        return [];
-      }
-    });
-
-    function isEncoded(name: string): boolean {
-      if (ENCODING_PATTERNS.some(pattern => pattern.test(name))) return true;
-      return userPatterns.some(pattern => pattern.test(name));
-    }
-
-    function checkIdentifier(identifier: TSESTree.Identifier): void {
-      if (!isEncoded(identifier.name)) return;
-      context.report({
-        node: identifier,
-        messageId: 'encodedName',
-        data: { name: identifier.name },
-      });
-    }
-
-    function checkParams(node: FunctionNode): void {
-      for (const param of node.params) {
-        const identifier = getParamIdentifier(param);
-        if (identifier) checkIdentifier(identifier);
-      }
-    }
-
-    function checkTypePrefix(identifier: TSESTree.Identifier): void {
-      if (!options.typePrefixes) return;
-      if (!TYPE_PREFIX_PATTERN.test(identifier.name)) return;
-      context.report({
-        node: identifier,
-        messageId: 'encodedName',
-        data: { name: identifier.name },
-      });
-    }
-
+    const userPatterns = compilePatterns(options.patterns);
     return {
       VariableDeclarator(node) {
-        if (node.id.type === 'Identifier') checkIdentifier(node.id);
+        if (node.id.type === 'Identifier') checkIdentifier(node.id, context, userPatterns);
       },
       FunctionDeclaration(node) {
-        if (node.id) checkIdentifier(node.id);
-        checkParams(node);
+        if (node.id) checkIdentifier(node.id, context, userPatterns);
+        checkParams(node, context, userPatterns);
       },
-      FunctionExpression: checkParams,
-      ArrowFunctionExpression: checkParams,
+      FunctionExpression: node => checkParams(node, context, userPatterns),
+      ArrowFunctionExpression: node => checkParams(node, context, userPatterns),
       ClassDeclaration(node) {
-        if (node.id) checkIdentifier(node.id);
+        if (node.id) checkIdentifier(node.id, context, userPatterns);
       },
       CatchClause(node) {
-        if (node.param && node.param.type === 'Identifier') checkIdentifier(node.param);
+        if (node.param && node.param.type === 'Identifier') {
+          checkIdentifier(node.param, context, userPatterns);
+        }
       },
       TSInterfaceDeclaration(node) {
-        checkTypePrefix(node.id);
+        checkTypePrefix(node.id, context, options);
       },
       TSTypeAliasDeclaration(node) {
-        checkTypePrefix(node.id);
+        checkTypePrefix(node.id, context, options);
       },
     };
   },

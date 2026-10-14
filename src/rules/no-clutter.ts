@@ -1,5 +1,8 @@
-import type { TSESTree } from '@typescript-eslint/utils';
+import type { TSESLint, TSESTree } from '@typescript-eslint/utils';
 import { createRule } from '../utils/create-rule';
+
+type MessageIds = 'emptyStatement' | 'uselessConstructor' | 'debugger' | 'removeDebugger';
+type NoClutterContext = TSESLint.RuleContext<MessageIds, never[]>;
 
 const WRAPPING_PARENT_TYPES = new Set([
   'IfStatement',
@@ -40,6 +43,63 @@ function classHasSuperClass(node: TSESTree.MethodDefinition): boolean {
   );
 }
 
+function replacementForEmptyStatement(
+  node: TSESTree.EmptyStatement,
+  sourceCode: TSESLint.SourceCode,
+): string | undefined {
+  const parent = node.parent;
+  if (!parent || !WRAPPING_PARENT_TYPES.has(parent.type)) return undefined;
+  const previous = sourceCode.getTokenBefore(node);
+  const needsSpace = !previous || previous.range[1] === node.range[0];
+  return needsSpace ? ' {}' : '{}';
+}
+
+function reportEmptyStatement(node: TSESTree.EmptyStatement, context: NoClutterContext): void {
+  const sourceCode = context.sourceCode;
+  context.report({
+    node,
+    messageId: 'emptyStatement',
+    fix: fixer => {
+      const replacement = replacementForEmptyStatement(node, sourceCode);
+      return replacement === undefined
+        ? fixer.remove(node)
+        : fixer.replaceText(node, replacement);
+    },
+  });
+}
+
+function reportUselessConstructor(
+  node: TSESTree.MethodDefinition,
+  context: NoClutterContext,
+): void {
+  if (node.kind !== 'constructor') return;
+  const empty = isEmptyConstructor(node);
+  const forwarding = isSuperForwardingConstructor(node);
+  if (!empty && !forwarding) return;
+  const canRemove = forwarding || (!classHasSuperClass(node) && node.decorators.length === 0);
+  context.report({
+    node,
+    messageId: 'uselessConstructor',
+    fix: canRemove ? fixer => fixer.remove(node) : undefined,
+  });
+}
+
+function reportDebuggerStatement(
+  node: TSESTree.DebuggerStatement,
+  context: NoClutterContext,
+): void {
+  context.report({
+    node,
+    messageId: 'debugger',
+    suggest: [
+      {
+        messageId: 'removeDebugger',
+        fix: fixer => fixer.remove(node),
+      },
+    ],
+  });
+}
+
 export default createRule({
   name: 'no-clutter',
   meta: {
@@ -64,46 +124,9 @@ export default createRule({
   defaultOptions: [],
   create(context) {
     return {
-      EmptyStatement(node) {
-        context.report({
-          node,
-          messageId: 'emptyStatement',
-          fix: fixer => {
-            const parent = node.parent;
-            if (parent && WRAPPING_PARENT_TYPES.has(parent.type)) {
-              const previous = context.sourceCode.getTokenBefore(node);
-              const needsSpace = !previous || previous.range[1] === node.range[0];
-              return fixer.replaceText(node, needsSpace ? ' {}' : '{}');
-            }
-            return fixer.remove(node);
-          },
-        });
-      },
-      MethodDefinition(node) {
-        if (node.kind !== 'constructor') return;
-        const empty = isEmptyConstructor(node);
-        const forwarding = isSuperForwardingConstructor(node);
-        if (!empty && !forwarding) return;
-        const fixable =
-          forwarding || (!classHasSuperClass(node) && node.decorators.length === 0);
-        context.report({
-          node,
-          messageId: 'uselessConstructor',
-          fix: fixable ? fixer => fixer.remove(node) : undefined,
-        });
-      },
-      DebuggerStatement(node) {
-        context.report({
-          node,
-          messageId: 'debugger',
-          suggest: [
-            {
-              messageId: 'removeDebugger',
-              fix: fixer => fixer.remove(node),
-            },
-          ],
-        });
-      },
+      EmptyStatement: node => reportEmptyStatement(node, context),
+      MethodDefinition: node => reportUselessConstructor(node, context),
+      DebuggerStatement: node => reportDebuggerStatement(node, context),
     };
   },
 });

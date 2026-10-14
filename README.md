@@ -209,7 +209,7 @@ Every rule accepts an options object; partial options are merged with the defaul
 | `law-of-demeter` | `{ maxChainLength: 3, allow: [] }` |
 | `descriptive-names` | `{ allow: ['i', 'j', 'k', 'x', 'y', 'z', 'e', '_'], forbidden: ['data', 'info', 'stuff', 'thing', 'temp', 'tmp', 'foo', 'bar', 'baz', 'obj', 'arr', 'val', 'utils', 'misc'] }` |
 | `no-ambiguous-names` | `{ confusingNames: ['l', 'O', 'I'] }` |
-| `long-names-for-long-scopes` | `{ minLength: 3, allow: ['i', 'j', 'k', 'x', 'y', 'z', 'e', '_'] }` |
+| `long-names-for-long-scopes` | `{ minLength: 3, allow: ['i', 'j', 'k', 'x', 'y', 'z', 'e', '_', 'it'] }` |
 | `no-encodings` | `{ patterns: [], typePrefixes: false }` |
 | `names-describe-side-effects` | `{ prefixes: ['get', 'is', 'has', 'find'] }` |
 | `prefer-namespace-imports` | `{ maxNamedImports: 10 }` |

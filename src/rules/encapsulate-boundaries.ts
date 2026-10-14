@@ -1,6 +1,9 @@
-import type { TSESTree } from '@typescript-eslint/utils';
+import type { TSESLint, TSESTree } from '@typescript-eslint/utils';
 import { getPropertyName, unwrap } from '../utils/ast';
 import { createRule } from '../utils/create-rule';
+
+type MessageIds = 'boundaryCondition';
+type BoundariesContext = TSESLint.RuleContext<MessageIds, never[]>;
 
 const BOUNDARY_PROPERTIES = new Set(['length', 'size', 'count']);
 
@@ -13,6 +16,22 @@ function getBoundaryProperty(node: TSESTree.Node): string | undefined {
   if (target.type !== 'MemberExpression') return undefined;
   const property = getPropertyName(target.property);
   return property && BOUNDARY_PROPERTIES.has(property) ? property : undefined;
+}
+
+function checkBinaryExpression(
+  node: TSESTree.BinaryExpression,
+  context: BoundariesContext,
+): void {
+  if (node.operator !== '+' && node.operator !== '-') return;
+  let property: string | undefined;
+  if (isNumericLiteral(node.left)) {
+    property = getBoundaryProperty(node.right);
+  }
+  if (!property && isNumericLiteral(node.right)) {
+    property = getBoundaryProperty(node.left);
+  }
+  if (!property) return;
+  context.report({ node, messageId: 'boundaryCondition', data: { property } });
 }
 
 export default createRule({
@@ -34,19 +53,7 @@ export default createRule({
   defaultOptions: [],
   create(context) {
     return {
-      BinaryExpression(node) {
-        if (node.operator !== '+' && node.operator !== '-') return;
-        let property: string | undefined;
-        if (isNumericLiteral(node.left)) {
-          property = getBoundaryProperty(node.right);
-        }
-        if (!property && isNumericLiteral(node.right)) {
-          property = getBoundaryProperty(node.left);
-        }
-        if (property) {
-          context.report({ node, messageId: 'boundaryCondition', data: { property } });
-        }
-      },
+      BinaryExpression: node => checkBinaryExpression(node, context),
     };
   },
 });

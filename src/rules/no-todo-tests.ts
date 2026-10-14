@@ -1,9 +1,86 @@
-import type { TSESTree } from '@typescript-eslint/utils';
+import type { TSESLint, TSESTree } from '@typescript-eslint/utils';
 import { createRule } from '../utils/create-rule';
 import { getChainRoot, getPropertyName, unwrap } from '../utils/ast';
 import { getVariable, isLocallyBound } from '../utils/scope';
 
+type MessageIds = 'emptyTest' | 'todoTest';
+type Options = { testFunctions: string[] }[];
+type TestContext = TSESLint.RuleContext<MessageIds, Options>;
+
 const EMPTY_TEST_MODIFIERS = ['only', 'each', 'concurrent', 'failing', 'todo'];
+
+function isFrameworkReference(context: TestContext, identifier: TSESTree.Identifier): boolean {
+  return !isLocallyBound(getVariable(context.sourceCode, identifier));
+}
+
+function isTestFunctionName(name: string, options: Options[number]): boolean {
+  return options.testFunctions.includes(name);
+}
+
+function todoTestName(
+  node: TSESTree.CallExpression,
+  context: TestContext,
+  options: Options[number],
+): string | undefined {
+  const callee = unwrap(node.callee);
+  if (callee.type !== 'MemberExpression') return undefined;
+  if (getPropertyName(callee.property) !== 'todo') return undefined;
+  const root = getChainRoot(callee);
+  if (root.type !== 'Identifier' || !isTestFunctionName(root.name, options)) return undefined;
+  return isFrameworkReference(context, root) ? root.name : undefined;
+}
+
+function modifiedTestName(
+  callee: TSESTree.MemberExpression,
+  context: TestContext,
+  options: Options[number],
+): string | undefined {
+  const property = getPropertyName(callee.property);
+  if (property === undefined || !EMPTY_TEST_MODIFIERS.includes(property)) return undefined;
+  const root = getChainRoot(callee);
+  if (root.type !== 'Identifier' || !isTestFunctionName(root.name, options)) return undefined;
+  return isFrameworkReference(context, root) ? root.name : undefined;
+}
+
+function emptyTestName(
+  node: TSESTree.CallExpression,
+  context: TestContext,
+  options: Options[number],
+): string | undefined {
+  const callee = unwrap(node.callee);
+  if (callee.type === 'Identifier') {
+    if (!isTestFunctionName(callee.name, options)) return undefined;
+    return isFrameworkReference(context, callee) ? callee.name : undefined;
+  }
+  if (callee.type !== 'MemberExpression') return undefined;
+  return modifiedTestName(callee, context, options);
+}
+
+function hasEmptyBody(node: TSESTree.CallExpression): boolean {
+  const last = node.arguments.at(-1);
+  if (!last) return false;
+  const callback = unwrap(last);
+  if (callback.type !== 'FunctionExpression' && callback.type !== 'ArrowFunctionExpression') {
+    return false;
+  }
+  return callback.body.type === 'BlockStatement' && callback.body.body.length === 0;
+}
+
+function checkTestCall(
+  node: TSESTree.CallExpression,
+  context: TestContext,
+  options: Options[number],
+): void {
+  const todoName = todoTestName(node, context, options);
+  if (todoName !== undefined) {
+    const callee = unwrap(node.callee);
+    context.report({ node: callee, messageId: 'todoTest', data: { name: todoName } });
+    return;
+  }
+  const emptyName = emptyTestName(node, context, options);
+  if (emptyName === undefined || !hasEmptyBody(node)) return;
+  context.report({ node, messageId: 'emptyTest', data: { name: emptyName } });
+}
 
 export default createRule({
   name: 'no-todo-tests',
@@ -32,60 +109,8 @@ export default createRule({
   },
   defaultOptions: [{ testFunctions: ['it', 'test', 'specify'] }],
   create(context, [options]) {
-    function isFrameworkReference(identifier: TSESTree.Identifier): boolean {
-      return !isLocallyBound(getVariable(context.sourceCode, identifier));
-    }
     return {
-      CallExpression(node) {
-        const callee = unwrap(node.callee);
-        if (callee.type === 'MemberExpression' && getPropertyName(callee.property) === 'todo') {
-          const root = getChainRoot(callee);
-          if (
-            root.type === 'Identifier' &&
-            options.testFunctions.includes(root.name) &&
-            isFrameworkReference(root)
-          ) {
-            context.report({
-              node: callee,
-              messageId: 'todoTest',
-              data: { name: root.name },
-            });
-            return;
-          }
-        }
-        let rootName: string | undefined;
-        if (
-          callee.type === 'Identifier' &&
-          options.testFunctions.includes(callee.name) &&
-          isFrameworkReference(callee)
-        ) {
-          rootName = callee.name;
-        } else if (callee.type === 'MemberExpression') {
-          const property = getPropertyName(callee.property);
-          const root = getChainRoot(callee);
-          if (
-            property !== undefined &&
-            EMPTY_TEST_MODIFIERS.includes(property) &&
-            root.type === 'Identifier' &&
-            options.testFunctions.includes(root.name) &&
-            isFrameworkReference(root)
-          ) {
-            rootName = root.name;
-          }
-        }
-        if (rootName === undefined) return;
-        const last = node.arguments[node.arguments.length - 1];
-        if (!last) return;
-        const callback = unwrap(last);
-        if (
-          (callback.type === 'FunctionExpression' ||
-            callback.type === 'ArrowFunctionExpression') &&
-          callback.body.type === 'BlockStatement' &&
-          callback.body.body.length === 0
-        ) {
-          context.report({ node, messageId: 'emptyTest', data: { name: rootName } });
-        }
-      },
+      CallExpression: node => checkTestCall(node, context, options),
     };
   },
 });

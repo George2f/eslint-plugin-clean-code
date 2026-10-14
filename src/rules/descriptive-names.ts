@@ -1,6 +1,39 @@
-import type { TSESTree } from '@typescript-eslint/utils';
+import type { TSESLint, TSESTree } from '@typescript-eslint/utils';
 import { getParamIdentifier } from '../utils/ast';
 import { createRule } from '../utils/create-rule';
+
+type MessageIds = 'singleLetterName' | 'vagueName';
+type Options = { allow: string[]; forbidden: string[] }[];
+type DescriptiveNamesContext = TSESLint.RuleContext<MessageIds, Options>;
+
+function checkIdentifier(
+  identifier: TSESTree.Identifier,
+  context: DescriptiveNamesContext,
+  allowed: Set<string>,
+  forbidden: Set<string>,
+): void {
+  const name = identifier.name;
+  if (name.startsWith('_')) return;
+  if (name.length === 1 && !allowed.has(name)) {
+    context.report({ node: identifier, messageId: 'singleLetterName', data: { name } });
+    return;
+  }
+  if (forbidden.has(name.toLowerCase())) {
+    context.report({ node: identifier, messageId: 'vagueName', data: { name } });
+  }
+}
+
+function checkParams(
+  node: TSESTree.FunctionLike,
+  context: DescriptiveNamesContext,
+  allowed: Set<string>,
+  forbidden: Set<string>,
+): void {
+  for (const param of node.params) {
+    const identifier = getParamIdentifier(param);
+    if (identifier) checkIdentifier(identifier, context, allowed, forbidden);
+  }
+}
 
 export default createRule({
   name: 'descriptive-names',
@@ -51,38 +84,22 @@ export default createRule({
   create(context, [options]) {
     const allowed = new Set(options.allow);
     const forbidden = new Set(options.forbidden);
-
-    function checkIdentifier(identifier: TSESTree.Identifier): void {
-      const name = identifier.name;
-      if (name.startsWith('_')) return;
-      if (name.length === 1 && !allowed.has(name)) {
-        context.report({ node: identifier, messageId: 'singleLetterName', data: { name } });
-        return;
-      }
-      if (forbidden.has(name.toLowerCase())) {
-        context.report({ node: identifier, messageId: 'vagueName', data: { name } });
-      }
-    }
-
-    function checkParams(node: TSESTree.FunctionLike): void {
-      for (const param of node.params) {
-        const identifier = getParamIdentifier(param);
-        if (identifier) checkIdentifier(identifier);
-      }
-    }
-
     return {
       VariableDeclarator(node) {
-        if (node.id.type === 'Identifier') checkIdentifier(node.id);
+        if (node.id.type === 'Identifier') {
+          checkIdentifier(node.id, context, allowed, forbidden);
+        }
       },
       FunctionDeclaration(node) {
-        if (node.id) checkIdentifier(node.id);
-        checkParams(node);
+        if (node.id) checkIdentifier(node.id, context, allowed, forbidden);
+        checkParams(node, context, allowed, forbidden);
       },
-      FunctionExpression: checkParams,
-      ArrowFunctionExpression: checkParams,
+      FunctionExpression: node => checkParams(node, context, allowed, forbidden),
+      ArrowFunctionExpression: node => checkParams(node, context, allowed, forbidden),
       CatchClause(node) {
-        if (node.param?.type === 'Identifier') checkIdentifier(node.param);
+        if (node.param?.type === 'Identifier') {
+          checkIdentifier(node.param, context, allowed, forbidden);
+        }
       },
     };
   },

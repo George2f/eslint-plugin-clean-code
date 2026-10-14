@@ -1,6 +1,8 @@
 import { ruleTester } from '../test-utils/rule-tester';
 import rule from './no-magic-numbers';
 
+const CUSTOM_IGNORED_VALUE = 99;
+
 ruleTester.run('no-magic-numbers', rule, {
   valid: [
     'const MAX_RETRIES = 5;',
@@ -23,7 +25,7 @@ ruleTester.run('no-magic-numbers', rule, {
     },
     {
       code: 'function f() { return 99; }',
-      options: [{ ignore: [99], ignoreDefaultValues: true, ignoreArrayIndexes: false, ignoreEnums: true }],
+      options: [{ ignore: [CUSTOM_IGNORED_VALUE], ignoreDefaultValues: true, ignoreArrayIndexes: false, ignoreEnums: true }],
     },
   ],
   invalid: [

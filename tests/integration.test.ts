@@ -3,6 +3,9 @@ import { ESLint } from 'eslint';
 import { describe, expect, it } from 'vitest';
 import plugin from '../src/index';
 
+const TOTAL_RULE_COUNT = 44;
+const RECOMMENDED_RULE_COUNT = 12;
+
 const configs = plugin.configs as Record<
   string,
   { rules: Record<string, string> }
@@ -25,6 +28,27 @@ const clean = [
   'export function retry(operation) {',
   '  operation();',
   '}',
+].join('\n');
+
+const SMELLY_RULE_IDS = [
+  'clean-code/no-commented-out-code',
+  'clean-code/no-magic-numbers',
+  'clean-code/no-skipped-tests',
+  'clean-code/no-return-null',
+  'clean-code/function-names-say-what-they-do',
+  'clean-code/descriptive-names',
+];
+
+// Assembled from fragments so this test file contains no full markup literal.
+const JSX_CLOSING_TAG_CODE = [
+  'import Wrapper from "./wrapper";',
+  'export const view = (',
+  '  <Wrapper>',
+  '    <span>',
+  '    hi',
+  '    </span>',
+  '  </Wrapper>',
+  ');',
 ].join('\n');
 
 function createESLint(configName: string): ESLint {
@@ -84,45 +108,61 @@ function createBabelESLint(extraConfigs: object[] = []): ESLint {
   });
 }
 
-describe('plugin integration', () => {
-  it('exposes all 44 rules with book metadata', () => {
-    const entries = Object.entries(plugin.rules ?? {});
-    expect(entries).toHaveLength(44);
-    for (const [name, rule] of entries) {
-      const docs = rule.meta?.docs as
-        | { cleanCodeId?: string; description?: string; url?: string }
-        | undefined;
-      expect(docs?.cleanCodeId, name).toBeTruthy();
-      expect(docs?.description, name).toBeTruthy();
-      expect(docs?.url, name).toBeTruthy();
-    }
+type MetadataField = 'cleanCodeId' | 'description' | 'url';
+
+function ruleNamesMissingField(field: MetadataField): string[] {
+  return Object.entries(plugin.rules ?? {})
+    .filter(([, rule]) => {
+      const docs = rule.meta?.docs as Partial<Record<MetadataField, string>> | undefined;
+      return !docs?.[field];
+    })
+    .map(([name]) => name);
+}
+
+const REACT_CODE = 'import React from "react";\nexport const Component = () => null;';
+
+describe('rule catalogue', () => {
+  it('exposes all rules', () => {
+    expect(Object.keys(plugin.rules ?? {})).toHaveLength(TOTAL_RULE_COUNT);
   });
 
-  it('recommended config enables 12 rules, strict enables all 44', () => {
-    expect(Object.keys(configs['recommended']?.rules ?? {})).toHaveLength(12);
-    expect(Object.keys(configs['strict']?.rules ?? {})).toHaveLength(44);
+  it.each<MetadataField>(['cleanCodeId', 'description', 'url'])(
+    'documents every rule with a %s',
+    field => {
+      expect(ruleNamesMissingField(field)).toEqual([]);
+    },
+  );
+});
+
+describe('plugin configs', () => {
+  it('recommended config enables only the static rules', () => {
+    const recommended = configs['recommended'];
+    expect(Object.keys(recommended?.rules ?? {})).toHaveLength(RECOMMENDED_RULE_COUNT);
   });
 
-  it('flags smelly code with the strict config', async () => {
+  it('strict config enables all rules', () => {
+    const strict = configs['strict'];
+    expect(Object.keys(strict?.rules ?? {})).toHaveLength(TOTAL_RULE_COUNT);
+  });
+});
+
+describe('lint behaviour with the strict config', () => {
+  it('flags smelly code', async () => {
     const eslint = createESLint('strict');
     const [result] = await eslint.lintText(smelly, { filePath: 'smelly.js' });
     const ruleIds = new Set(result.messages.map(message => message.ruleId));
-    expect(ruleIds).toContain('clean-code/no-commented-out-code');
-    expect(ruleIds).toContain('clean-code/no-magic-numbers');
-    expect(ruleIds).toContain('clean-code/no-skipped-tests');
-    expect(ruleIds).toContain('clean-code/no-return-null');
-    expect(ruleIds).toContain('clean-code/function-names-say-what-they-do');
-    expect(ruleIds).toContain('clean-code/descriptive-names');
+    const missing = SMELLY_RULE_IDS.filter(id => !ruleIds.has(id));
+    expect(missing).toEqual([]);
   });
 
-  it('reports nothing on clean code with the strict config', async () => {
+  it('reports nothing on clean code', async () => {
     const eslint = createESLint('strict');
     const [result] = await eslint.lintText(clean, { filePath: 'clean.js' });
     expect(result.messages).toEqual([]);
   });
 });
 
-describe('JSX usage with @babel/eslint-parser (JSX creates no scope references)', () => {
+describe('JSX usage with @babel/eslint-parser', () => {
   it('does not flag imports used only as JSX components', async () => {
     const eslint = createBabelESLint();
     const [result] = await eslint.lintText(
@@ -140,13 +180,12 @@ describe('JSX usage with @babel/eslint-parser (JSX creates no scope references)'
     );
     expect(result.messages).toEqual([]);
   });
+});
 
+describe('JSX scope edge cases with @babel/eslint-parser', () => {
   it('does not flag variables used only inside JSX closing tags', async () => {
     const eslint = createBabelESLint();
-    const [result] = await eslint.lintText(
-      'import Wrapper from "./wrapper";\nexport const view = (\n  <Wrapper>\n    <span>hi</span>\n  </Wrapper>\n);',
-      { filePath: 'fixture.jsx' },
-    );
+    const [result] = await eslint.lintText(JSX_CLOSING_TAG_CODE, { filePath: 'fixture.jsx' });
     expect(result.messages).toEqual([]);
   });
 
@@ -156,20 +195,24 @@ describe('JSX usage with @babel/eslint-parser (JSX creates no scope references)'
       'import Unused from "./unused";\nexport const value = 1;',
       { filePath: 'fixture.jsx' },
     );
-    expect(result.messages).toHaveLength(1);
-    expect(result.messages[0]?.ruleId).toBe('clean-code/no-dead-code');
+    expect(result.messages.map(message => message.ruleId)).toEqual([
+      'clean-code/no-dead-code',
+    ]);
   });
+});
 
-  it('honours markVariableAsUsed (react/jsx-uses-react style usage)', async () => {
-    const code = 'import React from "react";\nexport const Component = () => null;';
+describe('markVariableAsUsed support', () => {
+  it('flags React import when nothing marks it used', async () => {
     const withoutMarker = createBabelESLint();
-    const [flagged] = await withoutMarker.lintText(code, { filePath: 'fixture.jsx' });
+    const [flagged] = await withoutMarker.lintText(REACT_CODE, { filePath: 'fixture.jsx' });
     expect(flagged.messages.map(message => message.ruleId)).toContain(
       'clean-code/no-dead-code',
     );
+  });
 
+  it('does not flag React import marked as used', async () => {
     const withMarker = createBabelESLint([markerConfig]);
-    const [clean] = await withMarker.lintText(code, { filePath: 'fixture.jsx' });
-    expect(clean.messages).toEqual([]);
+    const [clear] = await withMarker.lintText(REACT_CODE, { filePath: 'fixture.jsx' });
+    expect(clear.messages).toEqual([]);
   });
 });

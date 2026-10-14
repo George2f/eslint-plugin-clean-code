@@ -1,6 +1,42 @@
-import type { TSESTree } from '@typescript-eslint/utils';
+import type { TSESLint, TSESTree } from '@typescript-eslint/utils';
 import { createRule } from '../utils/create-rule';
 import { getCalleeName, getPropertyName, isNullLiteral, unwrap } from '../utils/ast';
+
+type MessageIds = 'nullArgument';
+type Options = { ignoreCallees: string[] }[];
+type PassNullContext = TSESLint.RuleContext<MessageIds, Options>;
+
+function calleeNameOf(callee: TSESTree.Node): string | undefined {
+  if (callee.type === 'Identifier') return callee.name;
+  if (callee.type === 'MemberExpression') return getPropertyName(callee.property);
+  return undefined;
+}
+
+function checkArguments(
+  args: readonly (TSESTree.Expression | TSESTree.SpreadElement)[],
+  name: string | undefined,
+  context: PassNullContext,
+  ignored: RegExp[],
+): void {
+  for (const argument of args) {
+    if (!isNullLiteral(argument)) continue;
+    if (name !== undefined && ignored.some(pattern => pattern.test(name))) continue;
+    context.report({
+      node: argument,
+      messageId: 'nullArgument',
+      data: { callee: name ?? '(anonymous)' },
+    });
+  }
+}
+
+function checkNewExpression(
+  node: TSESTree.NewExpression,
+  context: PassNullContext,
+  ignored: RegExp[],
+): void {
+  const callee = unwrap(node.callee);
+  checkArguments(node.arguments, calleeNameOf(callee), context, ignored);
+}
 
 export default createRule({
   name: 'no-pass-null',
@@ -28,36 +64,10 @@ export default createRule({
   defaultOptions: [{ ignoreCallees: ['^use[A-Z]'] }],
   create(context, [options]) {
     const ignored = options.ignoreCallees.map(source => new RegExp(source));
-
-    function checkArguments(
-      args: readonly (TSESTree.Expression | TSESTree.SpreadElement)[],
-      name: string | undefined,
-    ): void {
-      for (const argument of args) {
-        if (!isNullLiteral(argument)) continue;
-        if (name !== undefined && ignored.some(pattern => pattern.test(name))) continue;
-        context.report({
-          node: argument,
-          messageId: 'nullArgument',
-          data: { callee: name ?? '(anonymous)' },
-        });
-      }
-    }
-
     return {
-      CallExpression(node) {
-        checkArguments(node.arguments, getCalleeName(node.callee));
-      },
-      NewExpression(node) {
-        const callee = unwrap(node.callee);
-        if (callee.type === 'Identifier') {
-          checkArguments(node.arguments, callee.name);
-        } else if (callee.type === 'MemberExpression') {
-          checkArguments(node.arguments, getPropertyName(callee.property));
-        } else {
-          checkArguments(node.arguments, undefined);
-        }
-      },
+      CallExpression: node =>
+        checkArguments(node.arguments, getCalleeName(node.callee), context, ignored),
+      NewExpression: node => checkNewExpression(node, context, ignored),
     };
   },
 });

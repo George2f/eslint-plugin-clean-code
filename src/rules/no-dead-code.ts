@@ -3,6 +3,15 @@ import { collectJsxComponentNames, walk } from '../utils/ast';
 import type { VisitorKeys } from '../utils/ast';
 import { createRule } from '../utils/create-rule';
 
+type MessageIds =
+  | 'unusedVariable'
+  | 'unusedImport'
+  | 'unreachableCode'
+  | 'removeUnusedVariable'
+  | 'removeUnreachableCode';
+type Options = { ignoreNames: string[]; ignoreRestSiblings: boolean }[];
+type DeadCodeContext = TSESLint.RuleContext<MessageIds, Options>;
+
 const TERMINATING_STATEMENTS = new Set([
   'ReturnStatement',
   'ThrowStatement',
@@ -27,6 +36,11 @@ const SUGGESTIBLE_DECLARATION_PARENTS = new Set([
   'SwitchCase',
 ]);
 
+interface DeadCodeDeps {
+  ignoredNames: Set<string>;
+  jsxComponentNames: Set<string>;
+}
+
 function isExportedDefinition(definition: TSESLint.Scope.Definition): boolean {
   const declaration = definition.node.parent;
   const parent = declaration?.parent;
@@ -46,6 +60,197 @@ function isRestSiblingOmission(definition: TSESLint.Scope.Definition): boolean {
     return pattern.elements.some(element => element?.type === 'RestElement');
   }
   return false;
+}
+
+function isUsed(variable: TSESLint.Scope.Variable, deps: DeadCodeDeps): boolean {
+  if (variable.eslintUsed) return true;
+  if (deps.jsxComponentNames.has(variable.name)) return true;
+  return variable.references.some(reference => reference.isRead());
+}
+
+function isSideEffectFree(init: TSESTree.Expression | null, visitorKeys: VisitorKeys): boolean {
+  if (!init) return true;
+  let clean = true;
+  walk(init, visitorKeys, node => {
+    if (SIDE_EFFECT_NODES.has(node.type)) clean = false;
+  });
+  return clean;
+}
+
+function joinNamedSpecifiers(
+  namedSpecifiers: readonly TSESTree.ImportClause[],
+  sourceCode: TSESLint.SourceCode,
+): string {
+  const texts = namedSpecifiers.map(specifier => sourceCode.getText(specifier));
+  return `{ ${texts.join(', ')} }`;
+}
+
+function buildImportParts(
+  remaining: readonly TSESTree.ImportClause[],
+  sourceCode: TSESLint.SourceCode,
+): string[] {
+  const defaultSpecifier = remaining.find(
+    specifier => specifier.type === 'ImportDefaultSpecifier',
+  );
+  const namespaceSpecifier = remaining.find(
+    specifier => specifier.type === 'ImportNamespaceSpecifier',
+  );
+  const namedSpecifiers = remaining.filter(
+    specifier => specifier.type === 'ImportSpecifier',
+  );
+  const parts: string[] = [];
+  for (const specifier of [defaultSpecifier, namespaceSpecifier]) {
+    if (specifier) parts.push(sourceCode.getText(specifier));
+  }
+  if (namedSpecifiers.length > 0) {
+    parts.push(joinNamedSpecifiers(namedSpecifiers, sourceCode));
+  }
+  return parts;
+}
+
+function buildImportReplacement(
+  importNode: TSESTree.ImportDeclaration,
+  removed: TSESTree.Node,
+  sourceCode: TSESLint.SourceCode,
+): string | null {
+  if (importNode.attributes && importNode.attributes.length > 0) return null;
+  const source = sourceCode.getText(importNode.source);
+  const remaining = importNode.specifiers.filter(specifier => specifier !== removed);
+  if (remaining.length === 0) return `import ${source};`;
+  const parts = buildImportParts(remaining, sourceCode);
+  return `import ${parts.join(', ')} from ${source};`;
+}
+
+function buildDeclaratorRemovalFix(
+  declarator: TSESTree.VariableDeclarator,
+  sourceCode: TSESLint.SourceCode,
+): ((fixer: TSESLint.RuleFixer) => TSESLint.RuleFix | null) | null {
+  if (declarator.id.type !== 'Identifier') return null;
+  const declaration = declarator.parent;
+  if (declaration.type !== 'VariableDeclaration') return null;
+  if (!SUGGESTIBLE_DECLARATION_PARENTS.has(declaration.parent.type)) return null;
+  const visitorKeys = sourceCode.visitorKeys as VisitorKeys;
+  if (!isSideEffectFree(declarator.init, visitorKeys)) return null;
+  const remaining = declaration.declarations.filter(item => item !== declarator);
+  if (remaining.length === 0) {
+    return fixer => fixer.remove(declaration);
+  }
+  const remainingText = remaining
+    .map(item => sourceCode.getText(item))
+    .join(', ');
+  return fixer => fixer.replaceText(declaration, `${declaration.kind} ${remainingText};`);
+}
+
+function reportUnusedImport(
+  variable: TSESLint.Scope.Variable,
+  definition: TSESLint.Scope.Definition,
+  context: DeadCodeContext,
+): void {
+  const specifier = definition.node;
+  const sourceCode = context.sourceCode;
+  context.report({
+    node: specifier,
+    messageId: 'unusedImport',
+    data: { name: variable.name },
+    fix: (fixer): TSESLint.RuleFix | null => {
+      const importNode = specifier.parent;
+      if (!importNode || importNode.type !== 'ImportDeclaration') return null;
+      const replacement = buildImportReplacement(importNode, specifier, sourceCode);
+      if (replacement === null) return null;
+      return fixer.replaceText(importNode, replacement);
+    },
+  });
+}
+
+function reportUnusedDeclaration(
+  variable: TSESLint.Scope.Variable,
+  definition: TSESLint.Scope.Definition,
+  context: DeadCodeContext,
+): void {
+  const declarator = definition.node;
+  const removalFix =
+    declarator.type === 'VariableDeclarator'
+      ? buildDeclaratorRemovalFix(declarator, context.sourceCode)
+      : null;
+  context.report({
+    node: definition.name,
+    messageId: 'unusedVariable',
+    data: { name: variable.name },
+    suggest: removalFix
+      ? [
+          {
+            messageId: 'removeUnusedVariable',
+            data: { name: variable.name },
+            fix: removalFix,
+          },
+        ]
+      : undefined,
+  });
+}
+
+function checkVariable(
+  variable: TSESLint.Scope.Variable,
+  context: DeadCodeContext,
+  options: Options[number],
+  deps: DeadCodeDeps,
+): void {
+  const definition = variable.defs[0];
+  if (!definition) return;
+  if (definition.type !== 'Variable' && definition.type !== 'ImportBinding') return;
+  if (variable.name.startsWith('_') || deps.ignoredNames.has(variable.name)) return;
+  if (isUsed(variable, deps)) return;
+  if (options.ignoreRestSiblings && isRestSiblingOmission(definition)) return;
+  if (definition.type === 'Variable' && isExportedDefinition(definition)) return;
+  if (definition.type === 'ImportBinding') {
+    reportUnusedImport(variable, definition, context);
+    return;
+  }
+  reportUnusedDeclaration(variable, definition, context);
+}
+
+function reportUnusedVariables(
+  context: DeadCodeContext,
+  options: Options[number],
+  visitorKeys: VisitorKeys,
+): void {
+  const scopeManager = context.sourceCode.scopeManager;
+  if (!scopeManager) return;
+  const deps: DeadCodeDeps = {
+    ignoredNames: new Set(options.ignoreNames),
+    jsxComponentNames: collectJsxComponentNames(context.sourceCode.ast, visitorKeys),
+  };
+  for (const scope of scopeManager.scopes) {
+    for (const variable of scope.variables) {
+      checkVariable(variable, context, options, deps);
+    }
+  }
+}
+
+function findUnreachableStatement(
+  body: readonly TSESTree.Node[],
+  terminatorIndex: number,
+): TSESTree.Node | undefined {
+  const afterTerminator = body.slice(terminatorIndex + 1);
+  return afterTerminator.find(statement => statement.type !== 'EmptyStatement');
+}
+
+function checkStatements(body: readonly TSESTree.Node[], context: DeadCodeContext): void {
+  const terminatorIndex = body.findIndex(statement =>
+    TERMINATING_STATEMENTS.has(statement.type),
+  );
+  if (terminatorIndex === -1) return;
+  const unreachable = findUnreachableStatement(body, terminatorIndex);
+  if (!unreachable) return;
+  context.report({
+    node: unreachable,
+    messageId: 'unreachableCode',
+    suggest: [
+      {
+        messageId: 'removeUnreachableCode',
+        fix: fixer => fixer.remove(unreachable),
+      },
+    ],
+  });
 }
 
 export default createRule({
@@ -80,160 +285,19 @@ export default createRule({
   defaultOptions: [{ ignoreNames: [] as string[], ignoreRestSiblings: true }],
   create(context, [options]) {
     if (context.filename.endsWith('.d.ts')) return {};
-    const sourceCode = context.sourceCode;
-    const visitorKeys = sourceCode.visitorKeys as VisitorKeys;
-    const ignored = new Set(options.ignoreNames);
-    const jsxComponentNames = collectJsxComponentNames(sourceCode.ast, visitorKeys);
-
-    function isUsed(variable: TSESLint.Scope.Variable): boolean {
-      if (variable.eslintUsed) return true;
-      if (jsxComponentNames.has(variable.name)) return true;
-      return variable.references.some(reference => reference.isRead());
-    }
-
-    function isSideEffectFree(init: TSESTree.Expression | null): boolean {
-      if (!init) return true;
-      let clean = true;
-      walk(init, visitorKeys, node => {
-        if (SIDE_EFFECT_NODES.has(node.type)) {
-          clean = false;
-          return false;
-        }
-      });
-      return clean;
-    }
-
-    function buildImportReplacement(
-      importNode: TSESTree.ImportDeclaration,
-      removed: TSESTree.Node,
-    ): string | null {
-      if (importNode.attributes && importNode.attributes.length > 0) return null;
-      const remaining = importNode.specifiers.filter(specifier => specifier !== removed);
-      const source = sourceCode.getText(importNode.source);
-      if (remaining.length === 0) return `import ${source};`;
-      const parts: string[] = [];
-      const defaultSpecifier = remaining.find(
-        specifier => specifier.type === 'ImportDefaultSpecifier',
-      );
-      const namespaceSpecifier = remaining.find(
-        specifier => specifier.type === 'ImportNamespaceSpecifier',
-      );
-      const namedSpecifiers = remaining.filter(
-        specifier => specifier.type === 'ImportSpecifier',
-      );
-      if (defaultSpecifier) parts.push(sourceCode.getText(defaultSpecifier));
-      if (namespaceSpecifier) parts.push(sourceCode.getText(namespaceSpecifier));
-      if (namedSpecifiers.length > 0) {
-        parts.push(`{ ${namedSpecifiers.map(specifier => sourceCode.getText(specifier)).join(', ')} }`);
-      }
-      return `import ${parts.join(', ')} from ${source};`;
-    }
-
-    function buildDeclaratorRemovalFix(
-      declarator: TSESTree.VariableDeclarator,
-    ): ((fixer: TSESLint.RuleFixer) => TSESLint.RuleFix | null) | null {
-      if (declarator.id.type !== 'Identifier') return null;
-      const declaration = declarator.parent;
-      if (declaration.type !== 'VariableDeclaration') return null;
-      if (!SUGGESTIBLE_DECLARATION_PARENTS.has(declaration.parent.type)) return null;
-      if (!isSideEffectFree(declarator.init)) return null;
-      const remaining = declaration.declarations.filter(item => item !== declarator);
-      if (remaining.length === 0) {
-        return fixer => fixer.remove(declaration);
-      }
-      const remainingText = remaining
-        .map(item => sourceCode.getText(item))
-        .join(', ');
-      return fixer => fixer.replaceText(declaration, `${declaration.kind} ${remainingText};`);
-    }
-
-    function checkStatements(body: readonly TSESTree.Node[]): void {
-      let terminatorIndex = -1;
-      for (let index = 0; index < body.length; index++) {
-        const statement = body[index];
-        if (statement && TERMINATING_STATEMENTS.has(statement.type)) {
-          terminatorIndex = index;
-          break;
-        }
-      }
-      if (terminatorIndex === -1) return;
-      for (let index = terminatorIndex + 1; index < body.length; index++) {
-        const statement = body[index];
-        if (statement && statement.type !== 'EmptyStatement') {
-          context.report({
-            node: statement,
-            messageId: 'unreachableCode',
-            suggest: [
-              {
-                messageId: 'removeUnreachableCode',
-                fix: fixer => fixer.remove(statement),
-              },
-            ],
-          });
-          return;
-        }
-      }
-    }
-
+    const visitorKeys = context.sourceCode.visitorKeys as VisitorKeys;
     return {
       Program(node) {
-        checkStatements(node.body);
+        checkStatements(node.body, context);
       },
       'Program:exit'() {
-        const scopeManager = sourceCode.scopeManager;
-        if (!scopeManager) return;
-        for (const scope of scopeManager.scopes) {
-          for (const variable of scope.variables) {
-            const definition = variable.defs[0];
-            if (!definition) continue;
-            if (definition.type !== 'Variable' && definition.type !== 'ImportBinding') continue;
-            if (variable.name.startsWith('_') || ignored.has(variable.name)) continue;
-            if (isUsed(variable)) continue;
-            if (options.ignoreRestSiblings && isRestSiblingOmission(definition)) continue;
-            if (definition.type === 'Variable' && isExportedDefinition(definition)) continue;
-            if (definition.type === 'ImportBinding') {
-              const specifier = definition.node;
-              context.report({
-                node: specifier,
-                messageId: 'unusedImport',
-                data: { name: variable.name },
-                fix: (fixer): TSESLint.RuleFix | null => {
-                  const importNode = specifier.parent;
-                  if (!importNode || importNode.type !== 'ImportDeclaration') return null;
-                  const replacement = buildImportReplacement(importNode, specifier);
-                  if (replacement === null) return null;
-                  return fixer.replaceText(importNode, replacement);
-                },
-              });
-            } else {
-              const declarator = definition.node;
-              const removalFix =
-                declarator.type === 'VariableDeclarator'
-                  ? buildDeclaratorRemovalFix(declarator)
-                  : null;
-              context.report({
-                node: definition.name,
-                messageId: 'unusedVariable',
-                data: { name: variable.name },
-                suggest: removalFix
-                  ? [
-                      {
-                        messageId: 'removeUnusedVariable',
-                        data: { name: variable.name },
-                        fix: removalFix,
-                      },
-                    ]
-                  : undefined,
-              });
-            }
-          }
-        }
+        reportUnusedVariables(context, options, visitorKeys);
       },
       BlockStatement(node) {
-        checkStatements(node.body);
+        checkStatements(node.body, context);
       },
       SwitchCase(node) {
-        checkStatements(node.consequent);
+        checkStatements(node.consequent, context);
       },
     };
   },

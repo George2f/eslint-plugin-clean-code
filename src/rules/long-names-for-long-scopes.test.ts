@@ -8,6 +8,7 @@ ruleTester.run('long-names-for-long-scopes', rule, {
     'const value = 1;',
     'const _db = connect();',
     'function loadOrder() {}',
+    'import { it } from "vitest";',
     {
       code: 'const db = connect();',
       options: [{ minLength: 2, allow: ['i', 'j', 'k', 'x', 'y', 'z', 'e', '_'] }],

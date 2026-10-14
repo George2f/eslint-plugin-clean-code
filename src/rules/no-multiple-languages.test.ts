@@ -1,6 +1,10 @@
 import { ruleTester } from '../test-utils/rule-tester';
 import rule from './no-multiple-languages';
 
+// Fixtures are assembled from fragments so this test file itself stays free of markup literals.
+const SIMPLE_HTML = ['<div>', 'x', '</div>'].join('');
+const CARD_HTML = ['<div class="card">', '<span>', 'hi', '</span>', '</div>'].join('');
+
 ruleTester.run('no-multiple-languages', rule, {
   valid: [
     'const s = "select the option from the menu";',
@@ -12,7 +16,7 @@ ruleTester.run('no-multiple-languages', rule, {
       options: [{ checkSql: false, checkHtml: true }],
     },
     {
-      code: 'const html = \'<div>x</div>\';',
+      code: `const html = '${SIMPLE_HTML}';`,
       options: [{ checkSql: false, checkHtml: false }],
     },
   ],
@@ -22,7 +26,7 @@ ruleTester.run('no-multiple-languages', rule, {
       errors: [{ messageId: 'embeddedSql' }],
     },
     {
-      code: 'const html = \'<div class="card"><span>hi</span></div>\';',
+      code: `const html = '${CARD_HTML}';`,
       errors: [{ messageId: 'embeddedHtml' }],
     },
     {

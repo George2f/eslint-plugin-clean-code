@@ -1,6 +1,81 @@
-import type { TSESTree } from '@typescript-eslint/utils';
+import type { TSESLint, TSESTree } from '@typescript-eslint/utils';
 import { createRule } from '../utils/create-rule';
 import { isCommentedOutCode, isDirectiveComment, isJsDocComment, stripCommentMarkers } from '../utils/comments';
+
+type MessageIds = 'commentedOutCode' | 'removeCommentedOutCode';
+type CommentContext = TSESLint.RuleContext<MessageIds, never[]>;
+
+function isConsecutiveLineComment(
+  next: TSESTree.Comment,
+  last: TSESTree.Comment | undefined,
+): boolean {
+  if (next.type !== 'Line' || !last) return false;
+  return next.loc.start.line === last.loc.end.line + 1;
+}
+
+function collectLineGroup(
+  comments: TSESTree.Comment[],
+  startIndex: number,
+): TSESTree.Comment[] {
+  const group: TSESTree.Comment[] = [comments[startIndex]];
+  let cursor = startIndex + 1;
+  while (cursor < comments.length) {
+    const next = comments[cursor];
+    if (!isConsecutiveLineComment(next, group.at(-1))) break;
+    group.push(next);
+    cursor += 1;
+  }
+  return group;
+}
+
+function reportComment(
+  context: CommentContext,
+  loc: TSESTree.SourceLocation,
+  range: TSESTree.Range,
+): void {
+  context.report({
+    loc,
+    messageId: 'commentedOutCode',
+    suggest: [
+      {
+        messageId: 'removeCommentedOutCode',
+        fix: fixer => fixer.removeRange(range),
+      },
+    ],
+  });
+}
+
+function reportLineGroup(context: CommentContext, group: TSESTree.Comment[]): void {
+  const first = group[0];
+  const last = group.at(-1);
+  if (!first || !last) return;
+  const text = group.map(item => item.value).join('\n');
+  if (isDirectiveComment(text) || !isCommentedOutCode(text)) return;
+  const loc = { start: first.loc.start, end: last.loc.end };
+  reportComment(context, loc, [first.range[0], last.range[1]]);
+}
+
+function reportBlockComment(context: CommentContext, comment: TSESTree.Comment): void {
+  const text = stripCommentMarkers(comment);
+  if (isDirectiveComment(text) || !isCommentedOutCode(text)) return;
+  reportComment(context, comment.loc, comment.range);
+}
+
+function scanComments(context: CommentContext): void {
+  const comments = context.sourceCode.getAllComments();
+  let index = 0;
+  while (index < comments.length) {
+    const comment = comments[index];
+    if (comment.type === 'Line') {
+      const group = collectLineGroup(comments, index);
+      reportLineGroup(context, group);
+      index += group.length;
+      continue;
+    }
+    if (!isJsDocComment(comment)) reportBlockComment(context, comment);
+    index += 1;
+  }
+}
 
 export default createRule({
   name: 'no-commented-out-code',
@@ -22,62 +97,7 @@ export default createRule({
   defaultOptions: [],
   create(context) {
     return {
-      Program() {
-        const comments = context.sourceCode.getAllComments();
-        let index = 0;
-        while (index < comments.length) {
-          const comment = comments[index];
-          if (comment.type === 'Line') {
-            const group: TSESTree.Comment[] = [comment];
-            while (index + 1 < comments.length) {
-              const next = comments[index + 1];
-              const last = group[group.length - 1];
-              if (
-                next.type === 'Line' &&
-                last &&
-                next.loc.start.line === last.loc.end.line + 1
-              ) {
-                group.push(next);
-                index += 1;
-              } else {
-                break;
-              }
-            }
-            const text = group.map(item => item.value).join('\n');
-            if (!isDirectiveComment(text) && isCommentedOutCode(text)) {
-              const first = group[0];
-              const last = group[group.length - 1];
-              if (first && last) {
-                context.report({
-                  loc: { start: first.loc.start, end: last.loc.end },
-                  messageId: 'commentedOutCode',
-                  suggest: [
-                    {
-                      messageId: 'removeCommentedOutCode',
-                      fix: fixer => fixer.removeRange([first.range[0], last.range[1]]),
-                    },
-                  ],
-                });
-              }
-            }
-          } else if (!isJsDocComment(comment)) {
-            const text = stripCommentMarkers(comment);
-            if (!isDirectiveComment(text) && isCommentedOutCode(text)) {
-              context.report({
-                loc: comment.loc,
-                messageId: 'commentedOutCode',
-                suggest: [
-                  {
-                    messageId: 'removeCommentedOutCode',
-                    fix: fixer => fixer.removeRange(comment.range),
-                  },
-                ],
-              });
-            }
-          }
-          index += 1;
-        }
-      },
+      Program: () => scanComments(context),
     };
   },
 });

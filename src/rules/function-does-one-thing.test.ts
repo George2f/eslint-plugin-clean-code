@@ -1,6 +1,8 @@
 import { ruleTester } from '../test-utils/rule-tester';
 import rule from './function-does-one-thing';
 
+const OVER_LIMIT_STATEMENTS = 21;
+
 ruleTester.run('function-does-one-thing', rule, {
   valid: [
     'function validate(x) { return x; }',
@@ -27,7 +29,7 @@ ruleTester.run('function-does-one-thing', rule, {
       errors: [{ messageId: 'nameSuggestsMultipleThings', data: { name: 'loadOrFail' } }],
     },
     {
-      code: `function big() {${' someCall();'.repeat(21)}}`,
+      code: `function big() {${' someCall();'.repeat(OVER_LIMIT_STATEMENTS)}}`,
       errors: [
         {
           messageId: 'functionTooLong',
