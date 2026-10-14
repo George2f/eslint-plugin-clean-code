@@ -17,7 +17,8 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      - run: npm install -g npm@latest
+      # npm 11 is the stable line with trusted-publishing support; npm 12 changed install-script handling.
+      - run: npm install -g npm@11
       - run: npm ci
       - name: Publish unless the version already exists
         run: |
