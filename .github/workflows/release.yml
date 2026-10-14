@@ -15,10 +15,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          # Node 24 bundles npm 11, which supports trusted publishing.
+          node-version: 24
           cache: npm
-      # npm 11 is the stable line with trusted-publishing support; npm 12 changed install-script handling.
-      - run: npm install -g npm@11
       - run: npm ci
       - name: Publish unless the version already exists
         run: |
