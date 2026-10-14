@@ -1,6 +1,6 @@
 {
   "name": "@george2f/eslint-plugin-clean-code",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "ESLint rules derived from the book Clean Code (Robert C. Martin)",
   "type": "module",
   "license": "MIT",

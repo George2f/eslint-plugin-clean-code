@@ -19,4 +19,11 @@ jobs:
           cache: npm
       - run: npm install -g npm@latest
       - run: npm ci
-      - run: npm publish --access public --provenance
+      - name: Publish unless the version already exists
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          if npm view "@george2f/eslint-plugin-clean-code@$VERSION" version >/dev/null 2>&1; then
+            echo "v$VERSION is already published; skipping"
+          else
+            npm publish --access public --provenance
+          fi
