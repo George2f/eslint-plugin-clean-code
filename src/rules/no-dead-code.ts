@@ -197,7 +197,7 @@ export default createRule({
                 node: specifier,
                 messageId: 'unusedImport',
                 data: { name: variable.name },
-                fix: fixer => {
+                fix: (fixer): TSESLint.RuleFix | null => {
                   const importNode = specifier.parent;
                   if (!importNode || importNode.type !== 'ImportDeclaration') return null;
                   const replacement = buildImportReplacement(importNode, specifier);

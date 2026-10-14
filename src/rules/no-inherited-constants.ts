@@ -11,12 +11,27 @@ function getSuperName(node: TSESTree.ClassDeclaration): string | undefined {
   return undefined;
 }
 
-function getMemberNames(node: TSESTree.ClassDeclaration, staticOnly: boolean): Set<string> {
+type NamedMember = TSESTree.MethodDefinition | TSESTree.PropertyDefinition;
+
+function isNamedMember(member: TSESTree.ClassElement): member is NamedMember {
+  if (member.type !== 'MethodDefinition' && member.type !== 'PropertyDefinition') return false;
+  return member.key.type !== 'PrivateIdentifier';
+}
+
+function getStaticMemberNames(node: TSESTree.ClassDeclaration): Set<string> {
   const names = new Set<string>();
   for (const member of node.body.body) {
-    if (member.type !== 'MethodDefinition' && member.type !== 'PropertyDefinition') continue;
-    if (staticOnly && !member.static) continue;
-    if (member.key.type === 'PrivateIdentifier') continue;
+    if (!isNamedMember(member) || !member.static) continue;
+    const name = getPropertyName(member.key);
+    if (name) names.add(name);
+  }
+  return names;
+}
+
+function getOwnMemberNames(node: TSESTree.ClassDeclaration): Set<string> {
+  const names = new Set<string>();
+  for (const member of node.body.body) {
+    if (!isNamedMember(member)) continue;
     const name = getPropertyName(member.key);
     if (name) names.add(name);
   }
@@ -60,13 +75,13 @@ export default createRule({
             visited.add(currentName);
             const ancestor = classes.get(currentName);
             if (!ancestor) break;
-            for (const memberName of getMemberNames(ancestor, true)) {
+            for (const memberName of getStaticMemberNames(ancestor)) {
               ancestorStatics.add(memberName);
             }
             currentName = getSuperName(ancestor);
           }
           if (ancestorStatics.size === 0) continue;
-          const ownMembers = getMemberNames(node, false);
+          const ownMembers = getOwnMemberNames(node);
           walk(node, visitorKeys, current => {
             if (current.type !== 'MemberExpression') return;
             const object = current.object;

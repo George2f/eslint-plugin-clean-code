@@ -34,6 +34,8 @@ const KEYWORD_LINE =
 
 const NON_CODE_EXPRESSIONS = new Set(['Identifier', 'Literal', 'TemplateLiteral', 'JSXText']);
 
+const MIN_COMMENT_CODE_LENGTH = 3;
+
 interface LooseNode {
   type: string;
   body?: unknown;
@@ -74,9 +76,9 @@ function tryParse(text: string): LooseNode | null {
       sourceType: 'module',
     }) as unknown as LooseNode;
     const fn = Array.isArray(wrapped.body) ? (wrapped.body[0] as LooseNode | undefined) : undefined;
-    const fnBody = fn?.body as LooseNode | undefined;
-    if (fnBody && Array.isArray(fnBody.body)) {
-      return { type: 'Program', body: fnBody.body };
+    const functionBody = fn?.body as LooseNode | undefined;
+    if (functionBody && Array.isArray(functionBody.body)) {
+      return { type: 'Program', body: functionBody.body };
     }
     return null;
   } catch {
@@ -117,7 +119,7 @@ function linesLookLikeCode(lines: string[]): boolean {
 
 export function isCommentedOutCode(text: string): boolean {
   const trimmed = text.trim();
-  if (trimmed.length < 3) return false;
+  if (trimmed.length < MIN_COMMENT_CODE_LENGTH) return false;
   if (isDirectiveComment(trimmed)) return false;
   const program = tryParse(trimmed);
   if (program) return programIsMeaningful(program);
