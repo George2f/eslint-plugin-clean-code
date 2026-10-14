@@ -5,6 +5,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-10-14
+
 ### Changed
 
 - Releases now create a GitHub Release page from the matching changelog section before publishing to npm
