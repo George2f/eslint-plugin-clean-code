@@ -145,7 +145,7 @@ const heuristicRules: Record<string, 'warn'> = {
 const plugin: ESLint.Plugin = {
   meta: {
     name: '@juraj-pejnovic/eslint-plugin-clean-code',
-    version: '0.2.0',
+    version: '0.2.1',
   },
   rules: rules as unknown as ESLint.Plugin['rules'],
 };
